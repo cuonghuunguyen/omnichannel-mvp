@@ -125,13 +125,13 @@ export function Inbox() {
   return (
     <div className="flex h-full">
       {/* Queue */}
-      <aside className="w-72 shrink-0 overflow-y-auto border-r">
-        <div className="flex items-center justify-between px-3 py-2 text-xs text-muted-foreground">
-          <span>Escalated conversations</span>
-          {operator && <span>You: {operator.name}</span>}
+      <aside className="w-72 shrink-0 overflow-y-auto border-r border-border bg-canvas-soft">
+        <div className="flex items-center justify-between px-4 py-3 text-xs font-semibold uppercase tracking-[0.096em] text-muted-foreground">
+          <span>Escalated</span>
+          {operator && <span className="normal-case tracking-normal">You: {operator.name}</span>}
         </div>
         {conversations.length === 0 && (
-          <p className="px-3 py-6 text-center text-sm text-muted-foreground">
+          <p className="px-4 py-6 text-center text-sm text-muted-foreground">
             No escalations yet.
           </p>
         )}
@@ -140,11 +140,11 @@ export function Inbox() {
             key={c.id}
             onClick={() => setSelectedId(c.id)}
             className={cn(
-              "flex w-full flex-col items-start gap-1 border-b px-3 py-2 text-left text-sm hover:bg-muted",
-              selectedId === c.id && "bg-muted",
+              "flex w-full flex-col items-start gap-1.5 border-b border-border px-4 py-3 text-left text-sm transition-colors hover:bg-surface-strong",
+              selectedId === c.id && "bg-surface-card",
             )}
           >
-            <span className="font-medium">{c.user?.name ?? "Guest"}</span>
+            <span className="font-medium text-ink">{c.user?.name ?? "Guest"}</span>
             <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Badge
                 variant={c.status === "assigned" ? "default" : "destructive"}
@@ -166,8 +166,8 @@ export function Inbox() {
           </div>
         ) : (
           <>
-            <header className="flex items-center justify-between border-b px-4 py-2">
-              <span className="text-sm font-medium">
+            <header className="flex h-16 items-center justify-between border-b border-border px-6">
+              <span className="text-base font-medium text-ink">
                 {selected.user?.name ?? "Guest"}
               </span>
               <div className="flex items-center gap-2">
@@ -187,7 +187,7 @@ export function Inbox() {
               </div>
             </header>
 
-            <div ref={threadRef} className="flex-1 space-y-3 overflow-y-auto p-4">
+            <div ref={threadRef} className="mx-auto w-full max-w-3xl flex-1 space-y-4 overflow-y-auto p-6">
               {messages.map((m) => {
                 const isOperator = m.metadata?.authorKind === "human";
                 const isGuest = m.role === "user";
@@ -215,12 +215,12 @@ export function Inbox() {
                     )}
                     <div
                       className={cn(
-                        "max-w-[80%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm",
+                        "max-w-[80%] whitespace-pre-wrap px-4 py-2.5 text-sm",
                         isOperator
-                          ? "bg-primary text-primary-foreground"
+                          ? "rounded-2xl rounded-br-md bg-primary text-primary-foreground"
                           : isGuest
-                            ? "bg-blue-100 dark:bg-blue-950"
-                            : "bg-secondary",
+                            ? "rounded-2xl rounded-bl-md bg-surface-strong text-ink"
+                            : "rounded-2xl rounded-bl-md border border-border bg-surface-card text-ink",
                       )}
                     >
                       {text}
@@ -230,9 +230,9 @@ export function Inbox() {
               })}
             </div>
 
-            <div className="border-t p-3">
+            <div className="border-t border-border bg-canvas-soft p-4">
               {claimedByMe ? (
-                <div className="flex items-end gap-2">
+                <div className="mx-auto flex w-full max-w-3xl items-end gap-2">
                   <Textarea
                     value={reply}
                     onChange={(e) => setReply(e.target.value)}
@@ -243,13 +243,13 @@ export function Inbox() {
                       }
                     }}
                     placeholder="Reply to the guest…"
-                    className="min-h-[44px] flex-1 resize-none"
+                    className="min-h-[44px] flex-1 resize-none rounded-xl border-hairline-strong bg-surface-card"
                   />
                   <Button
                     size="icon"
                     onClick={sendReply}
                     disabled={!reply.trim()}
-                    className="h-11 w-11 shrink-0"
+                    className="size-11 shrink-0"
                   >
                     <SendHorizontal className="size-4" />
                   </Button>

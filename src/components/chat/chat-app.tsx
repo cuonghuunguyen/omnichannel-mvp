@@ -108,15 +108,22 @@ export function ChatApp() {
 
   if (!user) {
     return (
-      <div className="flex h-full items-center justify-center p-6">
-        <div className="w-full max-w-sm space-y-4 rounded-xl border p-6 shadow-sm">
-          <div className="space-y-1">
-            <h1 className="text-lg font-semibold">Welcome</h1>
-            <p className="text-sm text-muted-foreground">
-              Enter your name to start chatting.
+      <div className="relative flex h-full items-center justify-center overflow-hidden p-6">
+        <div className="orb top-[-6rem] left-[-4rem] h-72 w-72 bg-gradient-lavender" />
+        <div className="orb right-[-5rem] bottom-[-7rem] h-80 w-80 bg-gradient-mint" />
+        <div className="relative z-10 w-full max-w-sm space-y-8 rounded-2xl border border-border bg-surface-card/90 p-8 shadow-[0_4px_16px_rgba(0,0,0,0.04)] backdrop-blur-sm">
+          <div className="space-y-3">
+            <p className="text-xs font-semibold uppercase tracking-[0.096em] text-muted-foreground">
+              Agent Routing
+            </p>
+            <h1 className="text-4xl font-light leading-tight tracking-[-0.96px] text-ink">
+              Welcome
+            </h1>
+            <p className="text-sm leading-relaxed text-body">
+              Enter your name to start a conversation with our agents.
             </p>
           </div>
-          <div className="space-y-2">
+          <div className="space-y-2.5">
             <Label htmlFor="name">Your name</Label>
             <Input
               id="name"
@@ -127,8 +134,12 @@ export function ChatApp() {
               autoFocus
             />
           </div>
-          <Button onClick={identify} disabled={loading || !nameInput.trim()} className="w-full">
-            Start chat
+          <Button
+            onClick={identify}
+            disabled={loading || !nameInput.trim()}
+            className="w-full"
+          >
+            {loading ? "One moment…" : "Start chat"}
           </Button>
         </div>
       </div>
@@ -137,12 +148,12 @@ export function ChatApp() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b px-4 py-2">
-        <span className="text-sm font-medium">
-          Chatting as <strong>{user.name}</strong>
+      <header className="flex items-center justify-between border-b border-border bg-canvas-soft px-6 py-4">
+        <span className="text-sm font-medium text-body">
+          Chatting as <span className="font-semibold text-ink">{user.name}</span>
         </span>
-        <Button variant="ghost" size="sm" onClick={reset}>
-          New session / switch user
+        <Button variant="outline" size="sm" onClick={reset}>
+          Switch user
         </Button>
       </header>
       <div className="flex-1 overflow-hidden">
@@ -154,22 +165,29 @@ export function ChatApp() {
             initialStatus={conversation.status}
           />
         ) : (
-          <div className="flex h-full items-center justify-center p-6">
-            <div className="w-full max-w-sm space-y-4 rounded-xl border p-6 shadow-sm">
-              <div className="space-y-1">
-                <h2 className="text-base font-semibold">Start a conversation</h2>
-                <p className="text-sm text-muted-foreground">
-                  Choose which agent should greet you.
+          <div className="relative flex h-full items-center justify-center overflow-hidden p-6">
+            <div className="orb top-[-7rem] right-[-5rem] h-80 w-80 bg-gradient-peach" />
+            <div className="orb bottom-[-6rem] left-[-4rem] h-72 w-72 bg-gradient-sky" />
+            <div className="relative z-10 w-full max-w-sm space-y-8 rounded-2xl border border-border bg-surface-card/90 p-8 shadow-[0_4px_16px_rgba(0,0,0,0.04)] backdrop-blur-sm">
+              <div className="space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-[0.096em] text-muted-foreground">
+                  New conversation
+                </p>
+                <h2 className="text-3xl font-light leading-tight tracking-[-0.72px] text-ink">
+                  Who should help you?
+                </h2>
+                <p className="text-sm leading-relaxed text-body">
+                  Pick an agent to greet you — you can always be routed elsewhere.
                 </p>
               </div>
-              <div className="space-y-2">
+              <div className="space-y-2.5">
                 <Label htmlFor="entry-agent">Agent</Label>
                 <select
                   id="entry-agent"
                   value={selectedAgentId}
                   onChange={(e) => setSelectedAgentId(e.target.value)}
                   disabled={loading || agents.length === 0}
-                  className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm shadow-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+                  className="h-11 w-full rounded-md border border-hairline-strong bg-surface-card px-4 text-sm text-ink outline-none transition-colors focus-visible:border-2 focus-visible:border-ink disabled:opacity-50"
                 >
                   {agents.length === 0 && <option value="">Loading agents…</option>}
                   {agents.map((a) => (
@@ -180,7 +198,7 @@ export function ChatApp() {
                   ))}
                 </select>
                 {selectedAgentId && (
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs leading-relaxed text-muted-foreground">
                     {agents.find((a) => a.id === selectedAgentId)?.description}
                   </p>
                 )}

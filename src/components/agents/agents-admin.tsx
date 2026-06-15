@@ -31,16 +31,18 @@ export function AgentsAdmin() {
       : null;
 
   return (
-    <div className="grid h-full grid-cols-[18rem_1fr] divide-x overflow-hidden">
+    <div className="grid h-full grid-cols-[18rem_1fr] divide-x divide-border overflow-hidden">
       {/* Agent list */}
-      <aside className="flex flex-col overflow-hidden">
-        <div className="flex items-center justify-between p-3">
-          <span className="text-sm font-medium">Agents</span>
+      <aside className="flex flex-col overflow-hidden bg-canvas-soft">
+        <div className="flex h-16 items-center justify-between border-b border-border px-4">
+          <span className="text-xs font-semibold uppercase tracking-[0.096em] text-muted-foreground">
+            Agents
+          </span>
           <Button size="sm" variant="outline" onClick={() => setSelectedId("new")}>
             <Plus className="size-4" /> New
           </Button>
         </div>
-        <div className="flex-1 space-y-1 overflow-y-auto px-2 pb-2">
+        <div className="flex-1 space-y-1 overflow-y-auto p-2">
           {loading && (
             <p className="px-2 py-4 text-sm text-muted-foreground">Loading…</p>
           )}
@@ -53,12 +55,12 @@ export function AgentsAdmin() {
             <button
               key={a.id}
               onClick={() => setSelectedId(a.id)}
-              className={`w-full rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-accent ${
-                selectedId === a.id ? "bg-accent" : ""
+              className={`w-full rounded-lg px-3 py-2.5 text-left text-sm transition-colors hover:bg-surface-strong ${
+                selectedId === a.id ? "bg-surface-card shadow-[0_1px_2px_rgba(0,0,0,0.04)]" : ""
               }`}
             >
               <div className="flex items-center gap-2">
-                <span className="truncate font-medium">{a.name}</span>
+                <span className="truncate font-medium text-ink">{a.name}</span>
                 {a.isDefault && (
                   <Badge variant="secondary" className="text-[10px]">
                     default

@@ -90,7 +90,7 @@ export function ChatView({
     <div className="flex h-full flex-col">
       <div ref={containerRef} className="relative flex-1 overflow-hidden">
         <ChatContainerRoot className="h-full">
-          <ChatContainerContent className="space-y-4 p-4">
+          <ChatContainerContent className="mx-auto w-full max-w-3xl space-y-5 px-4 py-6">
             {messages.map((m) => {
               const isUser = m.role === "user";
               const text = m.parts
@@ -127,8 +127,8 @@ export function ChatView({
                           markdown={!isUser}
                           className={
                             isUser
-                              ? "bg-primary text-primary-foreground"
-                              : "bg-secondary"
+                              ? "rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-primary-foreground"
+                              : "rounded-2xl rounded-bl-md border border-border bg-surface-card px-4 py-2.5 text-ink"
                           }
                         >
                           {text}
@@ -190,7 +190,7 @@ export function ChatView({
         </ChatContainerRoot>
       </div>
 
-      <div className="border-t p-4">
+      <div className="border-t border-border bg-canvas-soft p-4">
         {closed ? (
           <p className="text-center text-sm text-muted-foreground">
             This conversation has ended.
@@ -198,7 +198,8 @@ export function ChatView({
         ) : (
           <>
             {assignment === "human" && (
-              <p className="mb-2 text-center text-sm text-muted-foreground">
+              <p className="mb-3 flex items-center justify-center gap-1.5 text-center text-sm text-muted-foreground">
+                <UserRound className="size-3.5" />
                 You&apos;re connected to a human agent.
               </p>
             )}
@@ -208,7 +209,7 @@ export function ChatView({
               isLoading={isBusy}
               onSubmit={submit}
               maxHeight={200}
-              className="mx-auto w-full max-w-2xl"
+              className="mx-auto w-full max-w-2xl border-hairline-strong bg-surface-card"
             >
               <PromptInputTextarea placeholder="Type your message…" />
               <PromptInputActions className="justify-end pt-2">

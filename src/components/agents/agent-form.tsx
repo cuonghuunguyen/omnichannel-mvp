@@ -217,10 +217,10 @@ export function AgentForm({
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 p-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">
-          {isNew ? "New agent" : `Edit: ${agent!.name}`}
+    <div className="mx-auto max-w-2xl space-y-8 p-8">
+      <div className="flex items-center justify-between gap-4">
+        <h2 className="text-2xl font-light tracking-tight text-ink">
+          {isNew ? "New agent" : `Edit ${agent!.name}`}
         </h2>
         <div className="flex gap-2">
           {!isNew && onDeleted && (
@@ -275,7 +275,7 @@ export function AgentForm({
               id="model"
               value={model}
               onChange={(e) => setModel(e.target.value)}
-              className="h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm shadow-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+              className="h-11 w-full rounded-md border border-hairline-strong bg-surface-card px-4 text-sm text-ink outline-none transition-colors focus-visible:border-2 focus-visible:border-ink"
             >
               {MODEL_OPTIONS.map((m) => (
                 <option key={m.id} value={m.id}>
@@ -301,7 +301,7 @@ export function AgentForm({
 
       {/* Routing flags */}
       <section className="space-y-3">
-        <h3 className="text-sm font-medium">Routing</h3>
+        <h3 className="text-xs font-semibold uppercase tracking-[0.096em] text-muted-foreground">Routing</h3>
         <ToggleRow
           label="Routable"
           hint="Can be a deliver_to_agent target for other agents."
@@ -318,7 +318,7 @@ export function AgentForm({
 
       {/* Built-in tools */}
       <section className="space-y-3">
-        <h3 className="text-sm font-medium">Built-in tools</h3>
+        <h3 className="text-xs font-semibold uppercase tracking-[0.096em] text-muted-foreground">Built-in tools</h3>
         <ToggleRow
           label="send_message"
           hint="Speak to the user mid-turn."
@@ -347,7 +347,7 @@ export function AgentForm({
 
       {/* Guardrails */}
       <section className="space-y-3">
-        <h3 className="text-sm font-medium">Guardrails</h3>
+        <h3 className="text-xs font-semibold uppercase tracking-[0.096em] text-muted-foreground">Guardrails</h3>
         <ToggleRow
           label="Enabled"
           hint="Hardens the prompt against injection and fabrication. With a scope set below, also runs a classifier that blocks off-topic requests."
@@ -517,8 +517,8 @@ function ToggleRow({
   return (
     <div className="flex items-center justify-between gap-4">
       <div>
-        <p className="text-sm font-medium">{label}</p>
-        <p className="text-xs text-muted-foreground">{hint}</p>
+        <p className="text-sm font-medium text-ink">{label}</p>
+        <p className="text-xs leading-relaxed text-muted-foreground">{hint}</p>
       </div>
       <Switch checked={checked} onCheckedChange={onChange} />
     </div>
@@ -542,7 +542,7 @@ function RowSection({
     <section className="space-y-3">
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-sm font-medium">{title}</h3>
+          <h3 className="text-xs font-semibold uppercase tracking-[0.096em] text-muted-foreground">{title}</h3>
           <p className="text-xs text-muted-foreground">{hint}</p>
         </div>
         <Button size="sm" variant="outline" onClick={onAdd}>
@@ -566,10 +566,10 @@ function RowCard({
   onRemove: () => void;
 }) {
   return (
-    <div className="relative space-y-2 rounded-lg border p-3">
+    <div className="relative space-y-2 rounded-xl border border-border bg-surface-card p-4">
       <button
         onClick={onRemove}
-        className="absolute right-2 top-2 text-muted-foreground hover:text-destructive"
+        className="absolute right-3 top-3 text-muted-foreground transition-colors hover:text-destructive"
         aria-label="Remove"
       >
         <Trash2 className="size-4" />
