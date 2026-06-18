@@ -2,8 +2,9 @@
 // live DB state (the set of routable agents) and on the active UI stream.
 import { jsonSchema, tool, type ToolSet, type UIMessageStreamWriter } from "ai";
 import { z } from "zod";
-import type { BuiltinToolFlags, CustomToolDef } from "@/lib/types";
+import type { BuiltinToolFlags, CustomToolDef, KnowledgeConfig } from "@/lib/types";
 import type { ChatUIMessage } from "@/lib/agents/ui-messages";
+import { retrieve } from "@/lib/rag/retrieve";
 
 /** What a handoff tool tells the orchestration loop to do next. */
 export type HandoffSignal =
@@ -118,6 +119,61 @@ export function buildBuiltinTools(
   }
 
   return tools;
+}
+
+/**
+ * Build the `search_knowledge` tool when the agent has RAG enabled with at least
+ * one bucket. It runs the full retrieval pipeline (rewrite → hybrid → rerank)
+ * over the assigned buckets and returns numbered, cited passages the agent
+ * should ground its answer in. `pipelineModel` drives query rewrite + rerank.
+ */
+export function buildKnowledgeTool(
+  knowledge: KnowledgeConfig,
+  pipelineModel: string,
+  ctx: ToolContext,
+): ToolSet {
+  const bucketIds = knowledge.bucketIds ?? [];
+  if (!knowledge.enabled || bucketIds.length === 0) return {};
+
+  return {
+    search_knowledge: tool({
+      description:
+        "Search the knowledge base for facts to answer the user. Use this BEFORE " +
+        "answering any question that depends on specific policies, products, or " +
+        "documented details, and ground your reply in the returned passages. If " +
+        "nothing relevant comes back, say you don't know rather than guessing.",
+      inputSchema: z.object({
+        query: z.string().describe("A focused, standalone search query."),
+      }),
+      execute: async ({ query }) => {
+        const chunks = await retrieve({
+          bucketIds,
+          query,
+          topK: knowledge.topK ?? 5,
+          pipelineModel,
+        });
+        ctx.writer.write({
+          type: "data-knowledge",
+          data: {
+            query,
+            resultCount: chunks.length,
+            sources: [...new Set(chunks.map((c) => c.documentTitle).filter(Boolean))],
+          },
+        });
+        if (chunks.length === 0) {
+          return { results: [], note: "No relevant knowledge found." };
+        }
+        return {
+          results: chunks.map((c, i) => ({
+            ref: i + 1,
+            title: c.documentTitle,
+            source: c.documentSource || undefined,
+            content: c.content,
+          })),
+        };
+      },
+    }),
+  };
 }
 
 /** Tool names that terminate the current agent's turn (used as stop conditions). */

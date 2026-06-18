@@ -35,6 +35,7 @@ model Agent {
   mcpServers   String   @default("[]") // JSON [{ name, url, headers? }]
   handoffRules String   @default("[]") // JSON deliver_to_human rules
   guardrails   String   @default("{}") // JSON { enabled, scope, refusal }
+  knowledge    String   @default("{}") // JSON { enabled, bucketIds, topK } — RAG buckets (in the Postgres store)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

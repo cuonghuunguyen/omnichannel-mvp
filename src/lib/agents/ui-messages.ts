@@ -33,8 +33,24 @@ export type GuardrailDataPart = {
   offerHuman?: boolean;
 };
 
-/** The app-wide UIMessage shape: typed metadata + the `routing`/`guardrail` data parts. */
+/**
+ * A `data-knowledge` part, streamed when an agent searches its knowledge base,
+ * so the guest sees a grounding step ("Searched knowledge base — 3 sources").
+ * Live-only (not persisted).
+ */
+export type KnowledgeDataPart = {
+  query: string;
+  resultCount: number;
+  /** Short source labels (document titles) for the retrieved chunks. */
+  sources: string[];
+};
+
+/** The app-wide UIMessage shape: typed metadata + the streamed data parts. */
 export type ChatUIMessage = UIMessage<
   ChatMessageMetadata,
-  { routing: RoutingDataPart; guardrail: GuardrailDataPart }
+  {
+    routing: RoutingDataPart;
+    guardrail: GuardrailDataPart;
+    knowledge: KnowledgeDataPart;
+  }
 >;

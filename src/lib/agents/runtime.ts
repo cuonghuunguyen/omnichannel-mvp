@@ -7,6 +7,7 @@ import { guardHardening } from "@/lib/agents/guard";
 import {
   buildBuiltinTools,
   buildCustomTools,
+  buildKnowledgeTool,
   type RoutableAgent,
   type ToolContext,
 } from "@/lib/agents/tools";
@@ -55,14 +56,18 @@ export async function buildAgentRuntime(
   routable: RoutableAgent[],
   ctx: ToolContext,
 ) {
-  const { builtinTools, customTools, mcpServers, guardrails } =
+  const { builtinTools, customTools, mcpServers, guardrails, knowledge } =
     parseAgentConfig(agent);
   const mcp = await connectMcpServers(mcpServers);
+  // Query rewrite + reranking run on a dedicated model if configured, else the
+  // agent's own model.
+  const pipelineModel = process.env.RAG_PIPELINE_MODEL?.trim() || agent.model;
   return {
     system: buildSystemPrompt(agent, guardrails),
     tools: {
       ...mcp.tools,
       ...buildCustomTools(customTools),
+      ...buildKnowledgeTool(knowledge, pipelineModel, ctx),
       ...buildBuiltinTools(builtinTools, routable, ctx),
     },
     closeMcp: mcp.close,

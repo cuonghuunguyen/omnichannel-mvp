@@ -46,12 +46,26 @@ export type GuardrailsConfig = {
   refusal?: string;
 };
 
+/**
+ * RAG config. When `enabled` with at least one bucket, the agent gets a
+ * `search_knowledge` tool that retrieves from the assigned buckets (bucket ids
+ * live in the Postgres RAG store, referenced here by id — cross-DB, so no FK).
+ */
+export type KnowledgeConfig = {
+  enabled?: boolean;
+  /** RAG store bucket ids this agent may search. */
+  bucketIds?: string[];
+  /** How many chunks retrieval returns to the agent (default 5). */
+  topK?: number;
+};
+
 export type AgentConfig = {
   builtinTools: BuiltinToolFlags;
   customTools: CustomToolDef[];
   mcpServers: McpServerDef[];
   handoffRules: HandoffRule[];
   guardrails: GuardrailsConfig;
+  knowledge: KnowledgeConfig;
 };
 
 export function parseAgentConfig(agent: {
@@ -60,6 +74,7 @@ export function parseAgentConfig(agent: {
   mcpServers: string;
   handoffRules: string;
   guardrails: string;
+  knowledge: string;
 }): AgentConfig {
   return {
     builtinTools: safeParse<BuiltinToolFlags>(agent.builtinTools, {}),
@@ -67,6 +82,7 @@ export function parseAgentConfig(agent: {
     mcpServers: safeParse<McpServerDef[]>(agent.mcpServers, []),
     handoffRules: safeParse<HandoffRule[]>(agent.handoffRules, []),
     guardrails: safeParse<GuardrailsConfig>(agent.guardrails, {}),
+    knowledge: safeParse<KnowledgeConfig>(agent.knowledge, {}),
   };
 }
 

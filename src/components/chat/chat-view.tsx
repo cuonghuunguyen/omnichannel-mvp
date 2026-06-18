@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import { ArrowUp, ArrowRightLeft, CircleCheck, Square, UserRound } from "lucide-react";
+import { ArrowUp, ArrowRightLeft, BookOpen, CircleCheck, Square, UserRound } from "lucide-react";
 import type { ChatUIMessage } from "@/lib/agents/ui-messages";
 import {
   ChatContainerContent,
@@ -101,6 +101,7 @@ export function ChatView({
               const guardrails = m.parts.filter(
                 (p) => p.type === "data-guardrail",
               );
+              const knowledge = m.parts.filter((p) => p.type === "data-knowledge");
               return (
                 <div key={m.id} className="space-y-2">
                   {text.trim() && (
@@ -136,6 +137,21 @@ export function ChatView({
                       </div>
                     </Message>
                   )}
+                  {knowledge.map((p, i) => (
+                    <div
+                      key={`${m.id}-kb-${i}`}
+                      className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground"
+                    >
+                      <BookOpen className="size-3.5" />
+                      <span>
+                        {p.data.resultCount > 0
+                          ? `Searched knowledge base — ${p.data.resultCount} source${
+                              p.data.resultCount === 1 ? "" : "s"
+                            }`
+                          : "Searched knowledge base — no matches"}
+                      </span>
+                    </div>
+                  ))}
                   {routings.map((p, i) => (
                     <div
                       key={`${m.id}-routing-${i}`}

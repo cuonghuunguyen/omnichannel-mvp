@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Plus, Trash2 } from "lucide-react";
 import type { AgentDTO, AgentInput } from "@/lib/agents/agent-io";
+import type { Bucket } from "@/lib/rag/types";
 import { MODEL_OPTIONS, DEFAULT_MODEL_ID } from "@/lib/models";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -94,6 +95,22 @@ export function AgentForm({
     agent?.guardrails.refusal ?? "",
   );
 
+  const [knowledgeEnabled, setKnowledgeEnabled] = useState(
+    agent?.knowledge.enabled ?? false,
+  );
+  const [knowledgeBucketIds, setKnowledgeBucketIds] = useState<string[]>(
+    agent?.knowledge.bucketIds ?? [],
+  );
+  const [knowledgeTopK, setKnowledgeTopK] = useState(agent?.knowledge.topK ?? 5);
+  const [buckets, setBuckets] = useState<Bucket[]>([]);
+
+  useEffect(() => {
+    fetch("/api/knowledge/buckets")
+      .then((r) => r.json())
+      .then((json) => setBuckets(json.buckets ?? []))
+      .catch(() => setBuckets([]));
+  }, []);
+
   const [saving, setSaving] = useState(false);
 
   function buildInput(): AgentInput | null {
@@ -178,6 +195,11 @@ export function AgentForm({
         enabled: guardEnabled,
         scope: guardScope.trim(),
         refusal: guardRefusal.trim(),
+      },
+      knowledge: {
+        enabled: knowledgeEnabled,
+        bucketIds: knowledgeBucketIds,
+        topK: knowledgeTopK,
       },
     };
   }
@@ -374,6 +396,70 @@ export function AgentForm({
                 onChange={(e) => setGuardRefusal(e.target.value)}
                 placeholder="Shown when a request is blocked. Leave empty for a sensible default."
                 rows={2}
+              />
+            </div>
+          </>
+        )}
+      </section>
+
+      {/* Knowledge (RAG) */}
+      <section className="space-y-3">
+        <h3 className="text-xs font-semibold uppercase tracking-[0.096em] text-muted-foreground">
+          Knowledge (RAG)
+        </h3>
+        <ToggleRow
+          label="search_knowledge"
+          hint="Give this agent a tool to retrieve from assigned knowledge bases (hybrid search + rerank) and ground its answers."
+          checked={knowledgeEnabled}
+          onChange={setKnowledgeEnabled}
+        />
+        {knowledgeEnabled && (
+          <>
+            <div className="space-y-2">
+              <Label>Assigned knowledge bases</Label>
+              {buckets.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No knowledge bases yet — create one under Knowledge.
+                </p>
+              ) : (
+                <div className="space-y-1 rounded-xl border border-border bg-surface-card p-3">
+                  {buckets.map((b) => {
+                    const checked = knowledgeBucketIds.includes(b.id);
+                    return (
+                      <label
+                        key={b.id}
+                        className="flex cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 text-sm hover:bg-surface-strong"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) =>
+                            setKnowledgeBucketIds((ids) =>
+                              e.target.checked
+                                ? [...ids, b.id]
+                                : ids.filter((x) => x !== b.id),
+                            )
+                          }
+                        />
+                        <span className="text-ink">{b.name}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {b.documentCount ?? 0} docs · {b.embeddingProvider}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="knowledgeTopK">Results per search (topK)</Label>
+              <Input
+                id="knowledgeTopK"
+                type="number"
+                min={1}
+                max={20}
+                value={knowledgeTopK}
+                onChange={(e) => setKnowledgeTopK(Number(e.target.value))}
               />
             </div>
           </>

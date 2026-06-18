@@ -7,6 +7,7 @@ import {
   type CustomToolDef,
   type GuardrailsConfig,
   type HandoffRule,
+  type KnowledgeConfig,
   type McpServerDef,
 } from "@/lib/types";
 
@@ -25,6 +26,7 @@ export type AgentDTO = {
   mcpServers: McpServerDef[];
   handoffRules: HandoffRule[];
   guardrails: GuardrailsConfig;
+  knowledge: KnowledgeConfig;
   createdAt: string;
   updatedAt: string;
 };
@@ -60,6 +62,7 @@ export type AgentInput = Partial<{
   mcpServers: McpServerDef[];
   handoffRules: HandoffRule[];
   guardrails: GuardrailsConfig;
+  knowledge: KnowledgeConfig;
 }>;
 
 /**
@@ -86,5 +89,7 @@ export function toAgentData(input: AgentInput): Record<string, unknown> {
     data.handoffRules = JSON.stringify(input.handoffRules);
   if (input.guardrails !== undefined)
     data.guardrails = JSON.stringify(input.guardrails);
+  if (input.knowledge !== undefined)
+    data.knowledge = JSON.stringify(input.knowledge);
   return data;
 }

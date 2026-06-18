@@ -1,0 +1,24 @@
+# RAG vector store for M9. The app's own data stays in SQLite (Prisma); this
+# Postgres+pgvector instance is a dedicated knowledge store reached over
+# RAG_DATABASE_URL via the `pg` driver (raw SQL, see src/lib/rag/store.ts).
+services:
+  rag-db:
+    image: pgvector/pgvector:pg17
+    container_name: agent-routing-rag-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: rag
+      POSTGRES_PASSWORD: rag
+      POSTGRES_DB: rag
+    ports:
+      - "5433:5432" # 5433 on host to avoid clashing with a local Postgres
+    volumes:
+      - rag-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rag -d rag"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  rag-pgdata:
