@@ -1,0 +1,61 @@
+import "dotenv/config";
+import express, {
+  type NextFunction,
+  type Request,
+  type Response,
+} from "express";
+import cors from "cors";
+import { agentsRouter } from "@/routes/agents";
+import { knowledgeRouter } from "@/routes/knowledge";
+import { buildOpenApiDocument } from "@/openapi/document";
+
+const app = express();
+
+// The chat service's browser admin UI calls this API cross-origin; allow it.
+// CORS_ORIGIN can pin a single origin in production; defaults to reflecting any.
+app.use(
+  cors({
+    origin: process.env.CORS_ORIGIN?.split(",").map((s) => s.trim()) ?? true,
+  }),
+);
+app.use(express.json({ limit: "8mb" }));
+
+app.get("/health", (_req, res) => {
+  res.json({ ok: true });
+});
+
+// Live OpenAPI spec + a zero-build Redoc docs page.
+const openapiDoc = buildOpenApiDocument();
+app.get("/openapi.json", (_req, res) => {
+  res.json(openapiDoc);
+});
+app.get("/docs", (_req, res) => {
+  res.type("html").send(`<!doctype html>
+<html>
+  <head>
+    <title>Agent Routing — AI Config API</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+  </head>
+  <body>
+    <redoc spec-url="/openapi.json"></redoc>
+    <script src="https://cdn.redocly.com/redoc/latest/bundles/redoc.standalone.js"></script>
+  </body>
+</html>`);
+});
+
+app.use("/agents", agentsRouter);
+app.use("/knowledge", knowledgeRouter);
+
+// Last-resort error handler (Express 5 forwards async rejections here).
+app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  console.error("[api] unhandled error:", err);
+  if (!res.headersSent) res.status(500).json({ error: "internal error" });
+});
+
+const port = Number(process.env.API_PORT ?? process.env.PORT ?? 4000);
+app.listen(port, () => {
+  console.log(`AI Config API listening on http://localhost:${port}`);
+  console.log(`  docs:    http://localhost:${port}/docs`);
+  console.log(`  openapi: http://localhost:${port}/openapi.json`);
+});

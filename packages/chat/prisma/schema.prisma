@@ -1,0 +1,62 @@
+// Chat service schema. Owns User/Conversation/Message. Agents live in the AI
+// Config API service (separate DB) and are referenced here by plain string id —
+// no cross-service FK. The agent's display name is denormalized onto rows that
+// need it so history/badges render without calling the API.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+/// Guests and human operators.
+model User {
+  id            String         @id @default(cuid())
+  name          String
+  kind          String         @default("guest") // "guest" | "human_agent"
+  info          String? // JSON blob of persisted per-user info
+  createdAt     DateTime       @default(now())
+  conversations Conversation[]
+  messages      Message[]      @relation("MessageAuthorUser")
+}
+
+/// One conversation == one session.
+model Conversation {
+  id               String   @id @default(cuid())
+  userId           String
+  title            String?
+  routingFlag      String? // property used for initial routing
+  assignmentType   String   @default("ai") // "ai" | "human"
+  currentAgentId   String? // active AI agent (Agent.id in the API service; no FK)
+  currentAgentName String? // denormalized agent name for display
+  humanAgentId     String? // claimed human operator (User.id)
+  status           String   @default("open") // open | escalated | closed
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id])
+  messages Message[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model Message {
+  id              String   @id @default(cuid())
+  conversationId  String
+  role            String // user | assistant | system | tool
+  content         String   @default("") // plain text rendering
+  parts           String? // JSON: full AI SDK UIMessage parts (tool calls, etc.)
+  authorAgentId   String? // which AI agent authored (Agent.id in the API service; no FK)
+  authorAgentName String? // denormalized agent display name
+  authorUserId    String? // which human/guest authored
+  createdAt       DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  authorUser   User?        @relation("MessageAuthorUser", fields: [authorUserId], references: [id])
+
+  @@index([conversationId])
+}

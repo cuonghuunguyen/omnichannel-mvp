@@ -1,0 +1,39 @@
+{
+  "name": "@agent-routing/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "prisma generate && tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "start": "tsx src/server.ts",
+    "openapi": "tsx src/openapi/generate.ts",
+    "db:seed": "tsx prisma/seed.ts",
+    "rag:setup": "tsx scripts/rag-setup.ts",
+    "rag:seed": "tsx scripts/rag-seed.ts",
+    "postinstall": "prisma generate"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.84",
+    "@ai-sdk/deepseek": "^2.0.38",
+    "@huggingface/transformers": "^4.2.0",
+    "@prisma/adapter-better-sqlite3": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "ai": "^6.0.205",
+    "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
+    "express": "^5.1.0",
+    "pg": "^8.21.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^20",
+    "@types/pg": "^8.20.0",
+    "prisma": "^7.8.0",
+    "tsx": "^4.22.4",
+    "typescript": "^5"
+  }
+}

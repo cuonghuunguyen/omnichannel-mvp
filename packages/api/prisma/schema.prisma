@@ -1,0 +1,31 @@
+// AI-config service schema. Owns only the Agent table; the chat service owns
+// User/Conversation/Message in a separate database (no cross-service FKs).
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+/// AI agent definitions produced by the agent builder.
+model Agent {
+  id           String   @id @default(cuid())
+  name         String
+  description  String   @default("") // surfaced in deliver_to_agent schema
+  systemPrompt String   @default("") // master prompt
+  model        String   @default("deepseek-chat")
+  temperature  Float    @default(0.7)
+  isRoutable   Boolean  @default(true) // can be a deliver_to_agent target
+  isDefault    Boolean  @default(false) // entry agent for new conversations
+  builtinTools String   @default("{}") // JSON { sendMessage, deliverToAgent, deliverToHuman, endConversation: bool }
+  customTools  String   @default("[]") // JSON [{ name, description, schema, endpoint }]
+  mcpServers   String   @default("[]") // JSON [{ name, url, headers? }]
+  handoffRules String   @default("[]") // JSON deliver_to_human rules
+  guardrails   String   @default("{}") // JSON { enabled, scope, refusal }
+  knowledge    String   @default("{}") // JSON { enabled, bucketIds, topK } — RAG buckets (Postgres store)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
