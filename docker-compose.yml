@@ -11,7 +11,7 @@ services:
       POSTGRES_PASSWORD: rag
       POSTGRES_DB: rag
     ports:
-      - "5433:5432" # 5433 on host to avoid clashing with a local Postgres
+      - "5434:5432" # 5434 on host; 5432/5433 clash with local Postgres / litellm_db
     volumes:
       - rag-pgdata:/var/lib/postgresql/data
     healthcheck:
