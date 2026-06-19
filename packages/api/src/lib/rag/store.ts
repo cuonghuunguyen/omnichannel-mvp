@@ -79,9 +79,12 @@ export function ensureRagSchema(): Promise<void> {
 async function createSchema(): Promise<void> {
   await ragQuery("CREATE EXTENSION IF NOT EXISTS vector");
 
+  // `tenant_id` isolates each tenant's knowledge. Defaults to 'default' so it
+  // back-fills cleanly onto rows created before multi-tenancy.
   await ragQuery(`
     CREATE TABLE IF NOT EXISTS buckets (
       id                 TEXT PRIMARY KEY,
+      tenant_id          TEXT NOT NULL DEFAULT 'default',
       name               TEXT NOT NULL,
       description        TEXT NOT NULL DEFAULT '',
       embedding_provider TEXT NOT NULL,
@@ -94,6 +97,7 @@ async function createSchema(): Promise<void> {
   await ragQuery(`
     CREATE TABLE IF NOT EXISTS documents (
       id         TEXT PRIMARY KEY,
+      tenant_id  TEXT NOT NULL DEFAULT 'default',
       bucket_id  TEXT NOT NULL REFERENCES buckets(id) ON DELETE CASCADE,
       title      TEXT NOT NULL DEFAULT '',
       source     TEXT NOT NULL DEFAULT '',
@@ -105,6 +109,7 @@ async function createSchema(): Promise<void> {
   await ragQuery(`
     CREATE TABLE IF NOT EXISTS chunks (
       id          TEXT PRIMARY KEY,
+      tenant_id   TEXT NOT NULL DEFAULT 'default',
       document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
       bucket_id   TEXT NOT NULL REFERENCES buckets(id) ON DELETE CASCADE,
       idx         INTEGER NOT NULL DEFAULT 0,
@@ -116,8 +121,14 @@ async function createSchema(): Promise<void> {
     )
   `);
 
+  // Idempotent back-fill for stores created before multi-tenancy.
+  await ragQuery("ALTER TABLE buckets ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default'");
+  await ragQuery("ALTER TABLE documents ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default'");
+  await ragQuery("ALTER TABLE chunks ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default'");
+
   await ragQuery("CREATE INDEX IF NOT EXISTS chunks_bucket_idx ON chunks(bucket_id)");
   await ragQuery("CREATE INDEX IF NOT EXISTS chunks_document_idx ON chunks(document_id)");
   await ragQuery("CREATE INDEX IF NOT EXISTS chunks_tsv_idx ON chunks USING GIN(tsv)");
   await ragQuery("CREATE INDEX IF NOT EXISTS documents_bucket_idx ON documents(bucket_id)");
+  await ragQuery("CREATE INDEX IF NOT EXISTS buckets_tenant_idx ON buckets(tenant_id)");
 }

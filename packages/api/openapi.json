@@ -12,6 +12,54 @@
     }
   ],
   "paths": {
+    "/chat": {
+      "post": {
+        "operationId": "chatTurn",
+        "summary": "Run one AI turn for a conversation",
+        "description": "Runs the multi-agent orchestration loop for a conversation and streams a UIMessage stream (text/event-stream) back. Persistence and conversation-state changes are pushed to the chat service via its internal callback endpoint, so there is no JSON response body.",
+        "tags": [
+          "chat"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatTurnInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "A UIMessage stream",
+            "content": {
+              "text/event-stream": {}
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "No agent assigned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/agents": {
       "get": {
         "operationId": "listAgents",
@@ -1286,6 +1334,87 @@
         "required": [
           "bucketIds",
           "query"
+        ],
+        "additionalProperties": false
+      },
+      "ChatUIMessageInput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": {}
+            }
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "role",
+          "parts"
+        ],
+        "additionalProperties": false
+      },
+      "ChatTurnInput": {
+        "type": "object",
+        "properties": {
+          "tenantId": {
+            "type": "string"
+          },
+          "conversationId": {
+            "type": "string"
+          },
+          "agentId": {
+            "type": "string"
+          },
+          "routingFlag": {
+            "nullable": true,
+            "type": "string"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string"
+                },
+                "parts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": {}
+                  }
+                },
+                "metadata": {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              },
+              "required": [
+                "role",
+                "parts"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "conversationId",
+          "agentId",
+          "messages"
         ],
         "additionalProperties": false
       },

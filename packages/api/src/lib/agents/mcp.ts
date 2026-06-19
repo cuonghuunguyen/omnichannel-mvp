@@ -1,5 +1,3 @@
-// Remote MCP servers: connect per request, merge their tools into the agent's
-// toolset, and expose a close() the orchestration loop runs in a finally block.
 import { createMCPClient, type MCPClient } from "@ai-sdk/mcp";
 import type { ToolSet } from "ai";
 import type { McpServerDef } from "@/lib/types";

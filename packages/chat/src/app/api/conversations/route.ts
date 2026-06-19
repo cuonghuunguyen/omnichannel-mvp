@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { resolveEntryRouting } from "@/lib/routing";
+import { ACTIVE_TENANT_ID } from "@/lib/tenant";
 
 /**
  * List conversations (most recent first). Either:
@@ -21,6 +22,7 @@ export async function GET(req: Request) {
 
   const conversations = await db.conversation.findMany({
     where: {
+      tenantId: ACTIVE_TENANT_ID,
       ...(userId ? { userId } : {}),
       ...(status ? { status: { in: status.split(",") } } : {}),
     },
@@ -45,10 +47,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "userId is required" }, { status: 400 });
   }
 
+  // Guard the userId FK so a stale/unknown id gives a clean 404, not a 500.
+  const user = await db.user.findUnique({ where: { id: userId } });
+  if (!user) {
+    return NextResponse.json({ error: "user not found" }, { status: 404 });
+  }
+
   const routing = await resolveEntryRouting(routingFlag);
 
   const conversation = await db.conversation.create({
     data: {
+      tenantId: ACTIVE_TENANT_ID,
       userId,
       title: title ?? null,
       routingFlag: routingFlag ?? null,

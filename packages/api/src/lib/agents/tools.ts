@@ -1,10 +1,11 @@
 // Built-in agent tools, assembled per request because two of them depend on
-// live DB state (the set of routable agents) and on the active UI stream.
+// live state (the set of routable agents) and on the active UI stream. Knowledge
+// search runs the RAG pipeline locally (this service owns the RAG store).
 import { jsonSchema, tool, type ToolSet, type UIMessageStreamWriter } from "ai";
 import { z } from "zod";
 import type { BuiltinToolFlags, CustomToolDef, KnowledgeConfig } from "@/lib/types";
 import type { ChatUIMessage } from "@/lib/agents/ui-messages";
-import { searchKnowledge } from "@/lib/agents/agent-api";
+import { retrieve } from "@/lib/rag/retrieve";
 
 /** What a handoff tool tells the orchestration loop to do next. */
 export type HandoffSignal =
@@ -130,6 +131,7 @@ export function buildBuiltinTools(
 export function buildKnowledgeTool(
   knowledge: KnowledgeConfig,
   pipelineModel: string,
+  tenantId: string,
   ctx: ToolContext,
 ): ToolSet {
   const bucketIds = knowledge.bucketIds ?? [];
@@ -146,11 +148,12 @@ export function buildKnowledgeTool(
         query: z.string().describe("A focused, standalone search query."),
       }),
       execute: async ({ query }) => {
-        const chunks = await searchKnowledge({
+        const chunks = await retrieve({
+          tenantId,
           bucketIds,
           query,
           topK: knowledge.topK ?? 5,
-          model: pipelineModel,
+          pipelineModel,
         });
         ctx.writer.write({
           type: "data-knowledge",

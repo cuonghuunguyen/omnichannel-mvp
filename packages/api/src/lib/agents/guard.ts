@@ -4,8 +4,8 @@
 // fail-open — any error allows the turn (and is logged) so an outage can't break
 // the product.
 import { generateText } from "ai";
-import { resolveModel } from "@/lib/agents/model";
-import { textFromParts } from "@/lib/messages";
+import { resolveModel } from "@/lib/models";
+import { textFromParts } from "@/lib/agents/messages";
 import type { GuardrailsConfig } from "@/lib/types";
 import type { ChatUIMessage } from "@/lib/agents/ui-messages";
 

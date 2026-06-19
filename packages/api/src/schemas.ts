@@ -144,6 +144,31 @@ export const SearchInput = z.object({
   model: z.string().optional(),
 });
 
+// ── Chat completion ──────────────────────────────────────────────────────────
+/**
+ * A UIMessage as the chat service sends it. Parts are AI SDK UI parts (text,
+ * tool calls, data parts); validated loosely since the AI SDK owns their shape.
+ */
+export const ChatUIMessageInput = z.object({
+  id: z.string().optional(),
+  role: z.string(),
+  parts: z.array(z.record(z.string(), z.unknown())),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+/**
+ * One AI turn: the conversation's history + which agent answers + the routing
+ * flag (used for deliver_to_human rule evaluation). The response is a streamed
+ * UIMessage stream, not JSON, so it isn't modeled as a response schema here.
+ */
+export const ChatTurnInput = z.object({
+  tenantId: z.string().optional(),
+  conversationId: z.string(),
+  agentId: z.string(),
+  routingFlag: z.string().nullable().optional(),
+  messages: z.array(ChatUIMessageInput),
+});
+
 // ── Response envelopes + common ──────────────────────────────────────────────
 export const ErrorResponse = z.object({ error: z.string() });
 export const OkResponse = z.object({ ok: z.boolean() });
@@ -181,6 +206,8 @@ export const components = {
   CreateBucketInput,
   IngestDocumentInput,
   SearchInput,
+  ChatUIMessageInput,
+  ChatTurnInput,
   ErrorResponse,
   OkResponse,
   AgentResponse,

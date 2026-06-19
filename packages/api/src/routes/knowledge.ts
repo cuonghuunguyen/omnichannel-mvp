@@ -11,6 +11,7 @@ import {
 import { retrieve } from "@/lib/rag/retrieve";
 import { ragError } from "@/lib/rag/errors";
 import { DEFAULT_MODEL_ID } from "@/lib/models";
+import { ACTIVE_TENANT_ID } from "@/lib/tenant";
 import {
   CreateBucketInput,
   IngestDocumentInput,
@@ -19,10 +20,13 @@ import {
 
 export const knowledgeRouter: Router = Router();
 
+// All knowledge reads/writes are scoped to the active tenant.
+const tenantId = ACTIVE_TENANT_ID;
+
 /** List knowledge buckets (with document/chunk counts). */
 knowledgeRouter.get("/buckets", async (_req, res) => {
   try {
-    res.json({ buckets: await listBuckets() });
+    res.json({ buckets: await listBuckets(tenantId) });
   } catch (err) {
     res.status(503).json({ error: ragError(err) });
   }
@@ -42,6 +46,7 @@ knowledgeRouter.post("/buckets", async (req, res) => {
   }
   try {
     const bucket = await createBucket({
+      tenantId,
       name: input.name,
       description: input.description,
       provider: input.provider,
@@ -56,12 +61,12 @@ knowledgeRouter.post("/buckets", async (req, res) => {
 /** Fetch a bucket plus its documents. */
 knowledgeRouter.get("/buckets/:id", async (req, res) => {
   try {
-    const bucket = await getBucket(req.params.id);
+    const bucket = await getBucket(req.params.id, tenantId);
     if (!bucket) {
       res.status(404).json({ error: "not found" });
       return;
     }
-    const documents = await listDocuments(req.params.id);
+    const documents = await listDocuments(req.params.id, tenantId);
     res.json({ bucket, documents });
   } catch (err) {
     res.status(503).json({ error: ragError(err) });
@@ -71,7 +76,7 @@ knowledgeRouter.get("/buckets/:id", async (req, res) => {
 /** Delete a bucket (cascades to its documents + chunks). */
 knowledgeRouter.delete("/buckets/:id", async (req, res) => {
   try {
-    const ok = await deleteBucket(req.params.id);
+    const ok = await deleteBucket(req.params.id, tenantId);
     if (!ok) {
       res.status(404).json({ error: "not found" });
       return;
@@ -85,7 +90,7 @@ knowledgeRouter.delete("/buckets/:id", async (req, res) => {
 /** List a bucket's documents. */
 knowledgeRouter.get("/buckets/:id/documents", async (req, res) => {
   try {
-    res.json({ documents: await listDocuments(req.params.id) });
+    res.json({ documents: await listDocuments(req.params.id, tenantId) });
   } catch (err) {
     res.status(503).json({ error: ragError(err) });
   }
@@ -108,7 +113,7 @@ knowledgeRouter.post("/buckets/:id/documents", async (req, res) => {
     return;
   }
   try {
-    const document = await ingestDocument(req.params.id, {
+    const document = await ingestDocument(req.params.id, tenantId, {
       title: input.title,
       source: input.source,
       content: input.content,
@@ -128,7 +133,7 @@ knowledgeRouter.post("/buckets/:id/documents", async (req, res) => {
 /** Delete a document (cascades to its chunks). */
 knowledgeRouter.delete("/documents/:id", async (req, res) => {
   try {
-    const ok = await deleteDocument(req.params.id);
+    const ok = await deleteDocument(req.params.id, tenantId);
     if (!ok) {
       res.status(404).json({ error: "not found" });
       return;
@@ -157,6 +162,7 @@ knowledgeRouter.post("/search", async (req, res) => {
   }
   try {
     const results = await retrieve({
+      tenantId,
       bucketIds: input.bucketIds,
       query: input.query,
       topK: input.topK ?? 5,

@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+    "/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run one AI turn for a conversation
+         * @description Runs the multi-agent orchestration loop for a conversation and streams a UIMessage stream (text/event-stream) back. Persistence and conversation-state changes are pushed to the chat service via its internal callback endpoint, so there is no JSON response body.
+         */
+        post: operations["chatTurn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agents": {
         parameters: {
             query?: never;
@@ -326,6 +346,32 @@ export interface components {
             topK?: number;
             model?: string;
         };
+        ChatUIMessageInput: {
+            id?: string;
+            role: string;
+            parts: {
+                [key: string]: unknown;
+            }[];
+            metadata?: {
+                [key: string]: unknown;
+            };
+        };
+        ChatTurnInput: {
+            tenantId?: string;
+            conversationId: string;
+            agentId: string;
+            routingFlag?: string | null;
+            messages: {
+                id?: string;
+                role: string;
+                parts: {
+                    [key: string]: unknown;
+                }[];
+                metadata?: {
+                    [key: string]: unknown;
+                };
+            }[];
+        };
         ErrorResponse: {
             error: string;
         };
@@ -538,6 +584,48 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    chatTurn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChatTurnInput"];
+            };
+        };
+        responses: {
+            /** @description A UIMessage stream */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
+                };
+            };
+            /** @description Validation error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No agent assigned */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     listAgents: {
         parameters: {
             query?: never;

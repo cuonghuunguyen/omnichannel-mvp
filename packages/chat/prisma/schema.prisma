@@ -12,20 +12,39 @@ datasource db {
   provider = "sqlite"
 }
 
+/// A tenant (customer/workspace). Registry is duplicated in the AI Config API's
+/// DB; this service owns user/conversation/message isolation per tenant. One
+/// tenant per deployment is active (resolved from TENANT_ID env), but the data
+/// layer is fully tenant-scoped.
+model Tenant {
+  id            String         @id // stable slug, e.g. "default"
+  name          String
+  createdAt     DateTime       @default(now())
+  users         User[]
+  conversations Conversation[]
+  messages      Message[]
+}
+
 /// Guests and human operators.
 model User {
   id            String         @id @default(cuid())
+  tenantId      String         @default("default")
   name          String
   kind          String         @default("guest") // "guest" | "human_agent"
   info          String? // JSON blob of persisted per-user info
   createdAt     DateTime       @default(now())
   conversations Conversation[]
   messages      Message[]      @relation("MessageAuthorUser")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
 }
 
 /// One conversation == one session.
 model Conversation {
   id               String   @id @default(cuid())
+  tenantId         String   @default("default")
   userId           String
   title            String?
   routingFlag      String? // property used for initial routing
@@ -39,13 +58,16 @@ model Conversation {
 
   user     User      @relation(fields: [userId], references: [id])
   messages Message[]
+  tenant   Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([status])
+  @@index([tenantId])
 }
 
 model Message {
   id              String   @id @default(cuid())
+  tenantId        String   @default("default")
   conversationId  String
   role            String // user | assistant | system | tool
   content         String   @default("") // plain text rendering
@@ -57,6 +79,8 @@ model Message {
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   authorUser   User?        @relation("MessageAuthorUser", fields: [authorUserId], references: [id])
+  tenant       Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([conversationId])
+  @@index([tenantId])
 }

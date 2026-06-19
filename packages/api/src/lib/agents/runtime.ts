@@ -1,8 +1,9 @@
 // Per-agent runtime assembly: the system prompt and the toolset handed to
-// streamText for a single hop of the orchestration loop. Agents come from the
-// AI Config API (via the generated client), not a local DB.
-import type { AgentDTO, GuardrailsConfig } from "@/lib/api";
-import { fetchRoutableAgents } from "@/lib/agents/agent-api";
+// streamText for a single hop of the orchestration loop. Agents and the RAG
+// store are local to this service, so routable agents come straight from the DB.
+import { db } from "@/lib/db";
+import type { AgentDTO } from "@/lib/agent-io";
+import type { GuardrailsConfig } from "@/lib/types";
 import { guardHardening } from "@/lib/agents/guard";
 import {
   buildBuiltinTools,
@@ -13,11 +14,17 @@ import {
 } from "@/lib/agents/tools";
 import { connectMcpServers } from "@/lib/agents/mcp";
 
-/** Load the agents this agent may hand off to (routable, excluding itself). */
+/** Load the agents this agent may hand off to (routable, same tenant, not self). */
 export async function loadRoutableAgents(
   excludeAgentId: string,
+  tenantId: string,
 ): Promise<RoutableAgent[]> {
-  return fetchRoutableAgents(excludeAgentId);
+  const agents = await db.agent.findMany({
+    where: { tenantId, isRoutable: true, id: { not: excludeAgentId } },
+    select: { id: true, name: true, description: true },
+    orderBy: { name: "asc" },
+  });
+  return agents;
 }
 
 /**
@@ -49,6 +56,7 @@ export function buildSystemPrompt(agent: AgentDTO, guardrails: GuardrailsConfig)
 export async function buildAgentRuntime(
   agent: AgentDTO,
   routable: RoutableAgent[],
+  tenantId: string,
   ctx: ToolContext,
 ) {
   const { builtinTools, customTools, mcpServers, guardrails, knowledge } = agent;
@@ -61,7 +69,7 @@ export async function buildAgentRuntime(
     tools: {
       ...mcp.tools,
       ...buildCustomTools(customTools),
-      ...buildKnowledgeTool(knowledge, pipelineModel, ctx),
+      ...buildKnowledgeTool(knowledge, pipelineModel, tenantId, ctx),
       ...buildBuiltinTools(builtinTools, routable, ctx),
     },
     closeMcp: mcp.close,

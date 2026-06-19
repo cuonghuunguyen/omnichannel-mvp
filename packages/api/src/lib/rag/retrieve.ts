@@ -85,6 +85,8 @@ function fuse(lists: ChunkRow[][]): RetrievedChunk[] {
 }
 
 export type RetrieveOptions = {
+  /** Tenant that owns the buckets — foreign bucket ids resolve to nothing. */
+  tenantId: string;
   bucketIds: string[];
   /** The user's latest message (raw); rewriting happens inside. */
   query: string;
@@ -104,8 +106,9 @@ export async function retrieve(opts: RetrieveOptions): Promise<RetrievedChunk[]>
   const { query, keywords } = await rewriteQuery(opts.pipelineModel, opts.query, opts.context);
   const ftsText = [query, ...keywords].join(" ");
 
-  // Embed the query once per distinct bucket embedding config.
-  const configs = await getBucketEmbeddingConfigs(bucketIds);
+  // Embed the query once per distinct bucket embedding config. Scoped by tenant:
+  // buckets outside the tenant return no config and are skipped below.
+  const configs = await getBucketEmbeddingConfigs(bucketIds, opts.tenantId);
   const embeddingByKey = new Map<string, number[]>();
   const keyOf = (c: EmbeddingConfig) => `${c.provider}:${c.model}`;
   await Promise.all(

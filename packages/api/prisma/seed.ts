@@ -12,10 +12,20 @@ const db = new PrismaClient({ adapter });
 // a plain string (no cross-service FK).
 const HUMAN_ID = "seed-human-agent";
 
+// The active tenant these seed agents belong to. Matches TENANT_ID in .env.
+const TENANT_ID = process.env.TENANT_ID?.trim() || "default";
+
 // Demo domain: "Azure Bay Hotel & Resort" — an online booking/concierge service.
 // A Concierge greets every guest and routes to Reservations (book/modify rooms)
 // or Guest Services (in-stay help), escalating billing disputes to a human.
 async function main() {
+  // The tenant the seed data belongs to (registry duplicated in the chat DB).
+  await db.tenant.upsert({
+    where: { id: TENANT_ID },
+    update: {},
+    create: { id: TENANT_ID, name: "Default Tenant" },
+  });
+
   // Default entry agent: the Concierge greets the guest and routes. It carries
   // guardrails (broad hotel scope) so off-topic/injection is blocked at the door.
   await db.agent.upsert({
@@ -23,6 +33,7 @@ async function main() {
     update: {},
     create: {
       id: "seed-triage",
+      tenantId: TENANT_ID,
       name: "Concierge",
       description:
         "Front-desk concierge for Azure Bay Hotel. Greets the guest, figures out what they need, and hands off to Reservations or Guest Services (or a human for billing disputes).",
@@ -62,6 +73,7 @@ async function main() {
     update: {},
     create: {
       id: "seed-sales",
+      tenantId: TENANT_ID,
       name: "Reservations",
       description:
         "Handles room availability, rates, packages, and booking, changing, or cancelling reservations.",
@@ -93,6 +105,7 @@ async function main() {
     update: {},
     create: {
       id: "seed-support",
+      tenantId: TENANT_ID,
       name: "Guest Services",
       description:
         "Helps current and arriving guests with check-in/out, amenities, on-site services, and in-room issues.",

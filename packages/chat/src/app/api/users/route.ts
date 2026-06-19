@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { ACTIVE_TENANT_ID } from "@/lib/tenant";
 
 /** List users, optionally filtered by kind (e.g. `?kind=human_agent` for the inbox). */
 export async function GET(req: Request) {
   const kind = new URL(req.url).searchParams.get("kind");
   const users = await db.user.findMany({
-    where: kind ? { kind } : {},
+    where: { tenantId: ACTIVE_TENANT_ID, ...(kind ? { kind } : {}) },
     orderBy: { createdAt: "asc" },
     select: { id: true, name: true, kind: true },
   });
@@ -28,7 +29,7 @@ export async function POST(req: Request) {
   }
 
   const existing = await db.user.findFirst({
-    where: { name: trimmed, kind: "guest" },
+    where: { tenantId: ACTIVE_TENANT_ID, name: trimmed, kind: "guest" },
   });
 
   const user = existing
@@ -38,6 +39,7 @@ export async function POST(req: Request) {
       })
     : await db.user.create({
         data: {
+          tenantId: ACTIVE_TENANT_ID,
           name: trimmed,
           kind: "guest",
           info: info ? JSON.stringify(info) : null,

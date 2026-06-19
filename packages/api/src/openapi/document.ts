@@ -49,6 +49,27 @@ export function buildOpenApiDocument() {
     },
     servers: [{ url: "/", description: "Relative to the API host" }],
     paths: {
+      "/chat": {
+        post: {
+          operationId: "chatTurn",
+          summary: "Run one AI turn for a conversation",
+          description:
+            "Runs the multi-agent orchestration loop for a conversation and " +
+            "streams a UIMessage stream (text/event-stream) back. Persistence " +
+            "and conversation-state changes are pushed to the chat service via " +
+            "its internal callback endpoint, so there is no JSON response body.",
+          tags: ["chat"],
+          requestBody: body("ChatTurnInput"),
+          responses: {
+            "200": {
+              description: "A UIMessage stream",
+              content: { "text/event-stream": {} },
+            },
+            "400": resp("Validation error", "ErrorResponse"),
+            "409": resp("No agent assigned", "ErrorResponse"),
+          },
+        },
+      },
       "/agents": {
         get: {
           operationId: "listAgents",

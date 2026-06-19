@@ -33,6 +33,7 @@ export async function POST(
 
   const saved = await db.message.create({
     data: {
+      tenantId: conversation.tenantId,
       conversationId: id,
       role: "assistant",
       content: trimmed,

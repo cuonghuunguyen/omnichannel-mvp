@@ -14,3 +14,9 @@ export function resolveModel(modelId: string): LanguageModel {
 }
 
 export const DEFAULT_MODEL_ID = "deepseek-chat";
+
+/** Steps a single agent turn may take (tool calls + final text). */
+export const MAX_STEPS_PER_AGENT = 6;
+
+/** Max number of agent-to-agent handoffs within one HTTP turn. */
+export const MAX_HOPS = 4;

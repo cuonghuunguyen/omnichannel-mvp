@@ -68,10 +68,13 @@ Pets: Azure Bay is pet-friendly for dogs under 25 kg. A pet fee of $50 per stay 
   },
 ];
 
+const TENANT_ID = process.env.TENANT_ID?.trim() || "default";
+
 async function main() {
-  // Reuse an existing demo bucket if present, else create one.
-  const existing = (await listBuckets()).find((b) => b.name === "Azure Bay Knowledge");
+  // Reuse an existing demo bucket if present, else create one (this tenant's).
+  const existing = (await listBuckets(TENANT_ID)).find((b) => b.name === "Azure Bay Knowledge");
   const bucket = existing ?? (await createBucket({
+    tenantId: TENANT_ID,
     name: "Azure Bay Knowledge",
     description: "Hotel policies, amenities, rooms, and FAQs for Azure Bay Hotel & Resort.",
   }));
@@ -79,7 +82,7 @@ async function main() {
 
   if (!existing) {
     for (const doc of DOCS) {
-      const d = await ingestDocument(bucket.id, doc);
+      const d = await ingestDocument(bucket.id, TENANT_ID, doc);
       console.log(`  ingested "${d.title}" — ${d.chunkCount} chunks`);
     }
   } else {
@@ -89,7 +92,7 @@ async function main() {
   // Assign the bucket to the specialist agents so they answer from it.
   const knowledge = JSON.stringify({ enabled: true, bucketIds: [bucket.id], topK: 5 });
   const res = await db.agent.updateMany({
-    where: { id: { in: ["seed-support", "seed-sales"] } },
+    where: { tenantId: TENANT_ID, id: { in: ["seed-support", "seed-sales"] } },
     data: { knowledge },
   });
   console.log(`Assigned knowledge base to ${res.count} seeded agent(s).`);

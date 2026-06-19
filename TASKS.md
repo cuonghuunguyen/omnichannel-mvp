@@ -90,6 +90,15 @@ Legend: ✅ done · 🚧 in progress · ⬜ todo
 - ✅ Verified live: `docker compose up -d` → `rag:setup` (extension+tables) → `rag:seed` (5 hotel docs embedded locally, assigned to Reservations + Guest Services) → retrieval ranks the right doc at score 1.0 → real `/api/chat` turn: agent calls `search_knowledge`, streams the knowledge part (5 sources), answers grounded in the docs (no fabrication)
 - ⬜ Note: existing seeded agents need `pnpm db:seed && pnpm rag:seed` (or set buckets in `/agents`) to pick up knowledge. Scale note: the unconstrained `vector` column trades the ANN index for multi-dim flexibility (seq-scan `<=>`, fine at demo scale) — pin one dimension + add an HNSW index to scale
 - ⬜ Multi-media ingestion (PDFs/images/audio → extracted text + captions before chunking) deferred to a follow-up; the document ingestion path already accepts arbitrary text + metadata, so it slots in upstream
+## M10 — Move AI engine to API + full multi-tenancy ✅
+- ✅ **AI chat engine moved into `packages/api`**: the orchestration loop (`lib/chat/orchestrate.ts`), runtime (`lib/agents/{runtime,tools,mcp,guard,model→models,stream-ids,ui-messages}.ts`), and `POST /chat` route now live in the Express service. Inside the loop, agents + RAG are **local** (`db.agent`, `retrieve()`) — the per-turn `api-client` calls (`fetchAgent`/`fetchRoutableAgents`/`searchKnowledge`) are gone
+- ✅ **`packages/chat` is chat-only**: `/api/chat` is a thin proxy — gates (closed/human), persists+broadcasts the user message, POSTs `{tenantId,conversationId,agentId,routingFlag,messages}` to the API's `/chat`, pipes the UIMessage stream back. Moved AI libs deleted; `agent-api.ts` trimmed to `fetchAgent`/`fetchAgents` (entry routing + escalate only)
+- ✅ **Persistence as a callback "tool"**: API can't touch chat's DB, so `lib/chat/callbacks.ts` POSTs conversation events to chat's secret-gated `/api/internal/conversations/[id]/events` (`assistant_message`/`set_agent`/`escalate`/`close`) → chat does the DB write + SSE `publish`. Best-effort (failures logged, never abort the turn)
+- ✅ **Full multi-tenancy**: `Tenant` model + `tenantId` on every model (api `Agent`; chat `User`/`Conversation`/`Message`; RAG `buckets`/`documents`/`chunks`); registry **duplicated in both DBs**; tenant **identified statically via `TENANT_ID` env**. All agent/knowledge/conversation/user queries scoped by tenant; `tenantId` threaded through `/chat` → orchestrate → runtime → retrieve
+- ✅ New env: `TENANT_ID` + `INTERNAL_API_SECRET` (both); `CHAT_URL` + `GUARD_MODEL` (api). The AI/RAG/model-key config now lives only in the API's `.env`
+- ✅ Verified live: api boots, `/openapi.json` exposes `/chat`, validation 400/409; a real turn through chat's proxy on :3000 streamed 107 deltas and **persisted two assistant hops (Concierge → Guest Services)** across the service boundary via the callbacks — multi-hop routing + tenant-scoped agent resolution confirmed
+- ⬜ Note: existing dev DBs need `pnpm -r ... prisma db push` + `pnpm db:seed` (+ `pnpm rag:seed`) to pick up `tenantId`/Tenant. RAG live-path (Postgres) re-verify deferred — needs `docker compose up`
+
 ---
 
 ## Verification checklist (end-to-end)

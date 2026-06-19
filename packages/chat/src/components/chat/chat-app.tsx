@@ -35,17 +35,24 @@ export function ChatApp() {
   const [agents, setAgents] = useState<AgentChoice[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState<string>("");
 
-  // Restore guest identity from localStorage.
+  // Restore guest identity from localStorage. We optimistically use the stored
+  // user, then re-identify by name in the background so a stale id (e.g. after a
+  // DB reset wiped the user) self-heals to a valid one before any DB write.
   useEffect(() => {
     const raw = localStorage.getItem(USER_KEY);
-    if (raw) {
-      try {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setUser(JSON.parse(raw));
-      } catch {
-        localStorage.removeItem(USER_KEY);
-      }
+    if (!raw) return;
+    let stored: GuestUser;
+    try {
+      stored = JSON.parse(raw);
+    } catch {
+      localStorage.removeItem(USER_KEY);
+      return;
     }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setUser(stored);
+    loginByName(stored.name).then((guest) => {
+      if (guest) setUser(guest);
+    });
   }, []);
 
   // With a user but no conversation, load the entry-agent choices.
@@ -75,6 +82,13 @@ export function ChatApp() {
       // routingFlag = chosen agent id; backend falls back to default if empty.
       body: JSON.stringify({ userId: user.id, routingFlag: selectedAgentId || undefined }),
     });
+    if (!res.ok) {
+      // The stored user no longer exists (e.g. the DB was reset) — drop the
+      // stale identity and send the guest back to the name gate to re-identify.
+      setLoading(false);
+      reset();
+      return;
+    }
     const { conversation: conv } = await res.json();
     const histRes = await fetch(`/api/conversations/${conv.id}`);
     const { messages } = await histRes.json();
@@ -83,20 +97,27 @@ export function ChatApp() {
     setLoading(false);
   }
 
-  async function identify() {
-    const name = nameInput.trim();
-    if (!name) return;
-    setLoading(true);
+  // Identify/upsert a guest by name, persisting the returned (valid) id.
+  async function loginByName(name: string): Promise<GuestUser | null> {
     const res = await fetch("/api/users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name }),
     });
+    if (!res.ok) return null;
     const { user: u } = await res.json();
     const guest = { id: u.id, name: u.name };
     localStorage.setItem(USER_KEY, JSON.stringify(guest));
-    setUser(guest);
+    return guest;
+  }
+
+  async function identify() {
+    const name = nameInput.trim();
+    if (!name) return;
+    setLoading(true);
+    const guest = await loginByName(name);
     setLoading(false);
+    if (guest) setUser(guest);
   }
 
   function reset() {

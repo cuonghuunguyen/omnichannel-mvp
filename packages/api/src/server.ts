@@ -7,6 +7,7 @@ import express, {
 import cors from "cors";
 import { agentsRouter } from "@/routes/agents";
 import { knowledgeRouter } from "@/routes/knowledge";
+import { chatRouter } from "@/routes/chat";
 import { buildOpenApiDocument } from "@/openapi/document";
 
 const app = express();
@@ -46,6 +47,7 @@ app.get("/docs", (_req, res) => {
 
 app.use("/agents", agentsRouter);
 app.use("/knowledge", knowledgeRouter);
+app.use("/chat", chatRouter);
 
 // Last-resort error handler (Express 5 forwards async rejections here).
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
