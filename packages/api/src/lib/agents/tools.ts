@@ -6,6 +6,7 @@ import { z } from "zod";
 import type { BuiltinToolFlags, CustomToolDef, KnowledgeConfig } from "@/lib/types";
 import type { ChatUIMessage } from "@/lib/agents/ui-messages";
 import { retrieve } from "@/lib/rag/retrieve";
+import { cacheKey, getCachedChunks, setCachedChunks } from "@/lib/rag/retrieve-cache";
 
 /** What a handoff tool tells the orchestration loop to do next. */
 export type HandoffSignal =
@@ -127,15 +128,22 @@ export function buildBuiltinTools(
  * one bucket. It runs the full retrieval pipeline (rewrite → hybrid → rerank)
  * over the assigned buckets and returns numbered, cited passages the agent
  * should ground its answer in. `pipelineModel` drives query rewrite + rerank.
+ *
+ * `recentContext` (a short transcript of recent turns) is passed to the rewriter
+ * so follow-ups resolve to standalone queries. Results are cached per conversation
+ * + normalized query, so a repeated / near-identical ask skips the whole pipeline.
  */
 export function buildKnowledgeTool(
   knowledge: KnowledgeConfig,
   pipelineModel: string,
   tenantId: string,
+  conversationId: string,
+  recentContext: string,
   ctx: ToolContext,
 ): ToolSet {
   const bucketIds = knowledge.bucketIds ?? [];
   if (!knowledge.enabled || bucketIds.length === 0) return {};
+  const topK = knowledge.topK ?? 5;
 
   return {
     search_knowledge: tool({
@@ -148,13 +156,19 @@ export function buildKnowledgeTool(
         query: z.string().describe("A focused, standalone search query."),
       }),
       execute: async ({ query }) => {
-        const chunks = await retrieve({
-          tenantId,
-          bucketIds,
-          query,
-          topK: knowledge.topK ?? 5,
-          pipelineModel,
-        });
+        const key = cacheKey({ tenantId, conversationId, bucketIds, topK, query });
+        let chunks = getCachedChunks(key);
+        if (!chunks) {
+          chunks = await retrieve({
+            tenantId,
+            bucketIds,
+            query,
+            context: recentContext,
+            topK,
+            pipelineModel,
+          });
+          setCachedChunks(key, chunks);
+        }
         ctx.writer.write({
           type: "data-knowledge",
           data: {

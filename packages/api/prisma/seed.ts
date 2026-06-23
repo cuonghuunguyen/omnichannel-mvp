@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
 import { PrismaClient } from "../src/generated/prisma/client";
+import { hashApiKey } from "../src/lib/auth/api-key";
 
 const adapter = new PrismaBetterSqlite3({
   url: process.env.DATABASE_URL ?? "file:./agents.db",
@@ -15,6 +16,10 @@ const HUMAN_ID = "seed-human-agent";
 // The active tenant these seed agents belong to. Matches TENANT_ID in .env.
 const TENANT_ID = process.env.TENANT_ID?.trim() || "default";
 
+// Inbound API key for the OpenAI-compatible facade, stored hashed on the tenant.
+// Override with DEV_API_KEY; the default is a well-known dev value.
+const DEV_API_KEY = process.env.DEV_API_KEY?.trim() || "sk-agent-routing-dev";
+
 // Demo domain: "Azure Bay Hotel & Resort" — an online booking/concierge service.
 // A Concierge greets every guest and routes to Reservations (book/modify rooms)
 // or Guest Services (in-stay help), escalating billing disputes to a human.
@@ -22,8 +27,12 @@ async function main() {
   // The tenant the seed data belongs to (registry duplicated in the chat DB).
   await db.tenant.upsert({
     where: { id: TENANT_ID },
-    update: {},
-    create: { id: TENANT_ID, name: "Default Tenant" },
+    update: { apiKeyHash: hashApiKey(DEV_API_KEY) },
+    create: {
+      id: TENANT_ID,
+      name: "Default Tenant",
+      apiKeyHash: hashApiKey(DEV_API_KEY),
+    },
   });
 
   // Default entry agent: the Concierge greets the guest and routes. It carries

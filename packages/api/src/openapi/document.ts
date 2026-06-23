@@ -49,6 +49,69 @@ export function buildOpenApiDocument() {
     },
     servers: [{ url: "/", description: "Relative to the API host" }],
     paths: {
+      "/v1/chat/completions": {
+        post: {
+          operationId: "createChatCompletion",
+          summary: "OpenAI-compatible chat completion",
+          description:
+            "OpenAI Chat Completions facade over the multi-agent loop. Auth is a " +
+            "Bearer API key (resolves the tenant); `model` selects the entry agent " +
+            "by id; `stream:true` returns SSE chat.completion.chunk events, else a " +
+            "single chat.completion. Stateless — routing/escalation side-effects are " +
+            "delivered via the tenant's webhook, not the response.",
+          tags: ["openai"],
+          security: [{ bearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["model", "messages"],
+                  properties: {
+                    model: { type: "string", description: "Entry agent id." },
+                    messages: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        required: ["role"],
+                        properties: {
+                          role: { type: "string" },
+                          content: { type: "string" },
+                        },
+                      },
+                    },
+                    stream: { type: "boolean" },
+                    user: { type: "string" },
+                    conversation_id: { type: "string" },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            "200": {
+              description: "A chat.completion (JSON) or chat.completion.chunk stream (SSE).",
+              content: { "application/json": {}, "text/event-stream": {} },
+            },
+            "400": resp("Validation error", "ErrorResponse"),
+            "401": resp("Invalid API key", "ErrorResponse"),
+            "404": resp("Model (agent) not found", "ErrorResponse"),
+          },
+        },
+      },
+      "/v1/models": {
+        get: {
+          operationId: "listModels",
+          summary: "List the tenant's agents as OpenAI models",
+          tags: ["openai"],
+          security: [{ bearerAuth: [] }],
+          responses: {
+            "200": { description: "An OpenAI model list." },
+            "401": resp("Invalid API key", "ErrorResponse"),
+          },
+        },
+      },
       "/chat": {
         post: {
           operationId: "chatTurn",
@@ -67,6 +130,26 @@ export function buildOpenApiDocument() {
             },
             "400": resp("Validation error", "ErrorResponse"),
             "409": resp("No agent assigned", "ErrorResponse"),
+          },
+        },
+      },
+      "/agent-builder": {
+        post: {
+          operationId: "agentBuilderTurn",
+          summary: "Run one config-builder turn",
+          description:
+            "Runs the (stateless) config-builder assistant and streams a UIMessage " +
+            "stream (text/event-stream): plain text plus `config-proposal` and " +
+            "`knowledge-seed` data parts the admin UI folds into an editable draft. " +
+            "Nothing is persisted — the draft is saved via /agents.",
+          tags: ["agents"],
+          requestBody: body("AgentBuilderInput"),
+          responses: {
+            "200": {
+              description: "A UIMessage stream",
+              content: { "text/event-stream": {} },
+            },
+            "400": resp("Validation error", "ErrorResponse"),
           },
         },
       },
@@ -220,6 +303,11 @@ export function buildOpenApiDocument() {
         },
       },
     },
-    components: { schemas },
+    components: {
+      schemas,
+      securitySchemes: {
+        bearerAuth: { type: "http", scheme: "bearer", description: "Tenant API key." },
+      },
+    },
   };
 }

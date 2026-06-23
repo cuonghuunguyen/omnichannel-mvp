@@ -32,14 +32,18 @@ export async function loadRoutableAgents(
  * its place in the multi-agent system. Tool-specific guidance (the routable
  * roster) lives in the tool descriptions themselves, generated from live data.
  */
-export function buildSystemPrompt(agent: AgentDTO, guardrails: GuardrailsConfig): string {
+export function buildSystemPrompt(
+  agent: AgentDTO,
+  guardrails: GuardrailsConfig,
+  hasRoutableAgents: boolean,
+): string {
   return [
     agent.systemPrompt.trim(),
     "",
     `You are "${agent.name}", one agent in a multi-agent support system. ` +
       "Use your tools to message the user or route the conversation when another " +
       "agent or a human is better suited. Do not mention tool names to the user.",
-    guardHardening(guardrails),
+    guardHardening(guardrails, hasRoutableAgents),
   ]
     .filter(Boolean)
     .join("\n");
@@ -57,6 +61,8 @@ export async function buildAgentRuntime(
   agent: AgentDTO,
   routable: RoutableAgent[],
   tenantId: string,
+  conversationId: string,
+  recentContext: string,
   ctx: ToolContext,
 ) {
   const { builtinTools, customTools, mcpServers, guardrails, knowledge } = agent;
@@ -65,11 +71,18 @@ export async function buildAgentRuntime(
   // agent's own model.
   const pipelineModel = process.env.RAG_PIPELINE_MODEL?.trim() || agent.model;
   return {
-    system: buildSystemPrompt(agent, guardrails),
+    system: buildSystemPrompt(agent, guardrails, routable.length > 0),
     tools: {
       ...mcp.tools,
       ...buildCustomTools(customTools),
-      ...buildKnowledgeTool(knowledge, pipelineModel, tenantId, ctx),
+      ...buildKnowledgeTool(
+        knowledge,
+        pipelineModel,
+        tenantId,
+        conversationId,
+        recentContext,
+        ctx,
+      ),
       ...buildBuiltinTools(builtinTools, routable, ctx),
     },
     closeMcp: mcp.close,

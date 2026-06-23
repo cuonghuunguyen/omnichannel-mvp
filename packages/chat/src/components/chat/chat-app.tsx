@@ -90,10 +90,10 @@ export function ChatApp() {
       return;
     }
     const { conversation: conv } = await res.json();
-    const histRes = await fetch(`/api/conversations/${conv.id}`);
-    const { messages } = await histRes.json();
+    // A freshly created conversation has no history yet, so skip the extra
+    // round-trip to GET /api/conversations/{id} — it would always return [].
     setConversation(conv);
-    setInitialMessages(messages ?? []);
+    setInitialMessages([]);
     setLoading(false);
   }
 

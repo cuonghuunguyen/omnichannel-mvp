@@ -28,6 +28,35 @@ string ids — the agent's display name is denormalized onto those rows so chat
 history renders without a cross-service call. See [`DESIGN.md`](DESIGN.md) and
 [`TASKS.md`](TASKS.md).
 
+```mermaid
+flowchart LR
+    Browser["Browser<br/>guest chat · agent inbox · admin UI"]
+
+    subgraph chat["chat — Next.js 16  (:3000)"]
+        ChatAPI["route handlers<br/>/api/chat · conversations · SSE<br/>users · internal callbacks"]
+        ChatDB[("SQLite<br/>User · Conversation · Message")]
+    end
+
+    subgraph api["api — Express  (:4000)"]
+        ApiRoutes["/agents · /knowledge · /chat<br/>(zod → OpenAPI)"]
+        Orchestrator["orchestration loop<br/>guardrails · tools · handoff"]
+        AgentDB[("SQLite<br/>Agent")]
+        RagDB[("Postgres + pgvector<br/>knowledge store · :5434")]
+    end
+
+    LLM["LLM providers<br/>Anthropic · DeepSeek"]
+
+    Browser <-->|"HTTP + SSE"| ChatAPI
+    Browser -->|"admin UI · NEXT_PUBLIC_API_URL"| ApiRoutes
+    ChatAPI -->|"api-client (API_URL)"| ApiRoutes
+    ChatDB --- ChatAPI
+    ApiRoutes --> Orchestrator
+    Orchestrator --> AgentDB
+    Orchestrator --> RagDB
+    Orchestrator --> LLM
+    Orchestrator -.->|"callbacks: persist msg + broadcast SSE<br/>(INTERNAL_API_SECRET)"| ChatAPI
+```
+
 ## Prerequisites
 
 - Node 20+, pnpm

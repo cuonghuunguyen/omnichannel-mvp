@@ -4,6 +4,43 @@
  */
 
 export interface paths {
+    "/v1/chat/completions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * OpenAI-compatible chat completion
+         * @description OpenAI Chat Completions facade over the multi-agent loop. Auth is a Bearer API key (resolves the tenant); `model` selects the entry agent by id; `stream:true` returns SSE chat.completion.chunk events, else a single chat.completion. Stateless — routing/escalation side-effects are delivered via the tenant's webhook, not the response.
+         */
+        post: operations["createChatCompletion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the tenant's agents as OpenAI models */
+        get: operations["listModels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/chat": {
         parameters: {
             query?: never;
@@ -18,6 +55,26 @@ export interface paths {
          * @description Runs the multi-agent orchestration loop for a conversation and streams a UIMessage stream (text/event-stream) back. Persistence and conversation-state changes are pushed to the chat service via its internal callback endpoint, so there is no JSON response body.
          */
         post: operations["chatTurn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/agent-builder": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Run one config-builder turn
+         * @description Runs the (stateless) config-builder assistant and streams a UIMessage stream (text/event-stream): plain text plus `config-proposal` and `knowledge-seed` data parts the admin UI folds into an editable draft. Nothing is persisted — the draft is saved via /agents.
+         */
+        post: operations["agentBuilderTurn"];
         delete?: never;
         options?: never;
         head?: never;
@@ -372,6 +429,66 @@ export interface components {
                 };
             }[];
         };
+        AgentBuilderInput: {
+            messages: {
+                id?: string;
+                role: string;
+                parts: {
+                    [key: string]: unknown;
+                }[];
+                metadata?: {
+                    [key: string]: unknown;
+                };
+            }[];
+            currentDraft?: {
+                name?: string;
+                description?: string;
+                systemPrompt?: string;
+                model?: string;
+                temperature?: number;
+                isRoutable?: boolean;
+                isDefault?: boolean;
+                builtinTools?: {
+                    sendMessage?: boolean;
+                    deliverToAgent?: boolean;
+                    deliverToHuman?: boolean;
+                    endConversation?: boolean;
+                };
+                customTools?: {
+                    name: string;
+                    description: string;
+                    schema: {
+                        [key: string]: unknown;
+                    };
+                    endpoint: string;
+                }[];
+                mcpServers?: {
+                    name: string;
+                    url: string;
+                    headers?: {
+                        [key: string]: string;
+                    };
+                }[];
+                handoffRules?: {
+                    when: {
+                        flag?: string;
+                        keywords?: string[];
+                    };
+                    assignTo: string;
+                }[];
+                guardrails?: {
+                    enabled?: boolean;
+                    scope?: string;
+                    refusal?: string;
+                };
+                knowledge?: {
+                    enabled?: boolean;
+                    bucketIds?: string[];
+                    topK?: number;
+                };
+            } | null;
+            editing?: boolean;
+        };
         ErrorResponse: {
             error: string;
         };
@@ -584,6 +701,95 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    createChatCompletion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Entry agent id. */
+                    model: string;
+                    messages: {
+                        role: string;
+                        content?: string;
+                    }[];
+                    stream?: boolean;
+                    user?: string;
+                    conversation_id?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description A chat.completion (JSON) or chat.completion.chunk stream (SSE). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                    "text/event-stream": unknown;
+                };
+            };
+            /** @description Validation error */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Model (agent) not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listModels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description An OpenAI model list. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Invalid API key */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     chatTurn: {
         parameters: {
             query?: never;
@@ -617,6 +823,39 @@ export interface operations {
             };
             /** @description No agent assigned */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    agentBuilderTurn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentBuilderInput"];
+            };
+        };
+        responses: {
+            /** @description A UIMessage stream */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
+                };
+            };
+            /** @description Validation error */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };

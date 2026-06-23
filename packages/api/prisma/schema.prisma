@@ -15,10 +15,18 @@ datasource db {
 /// deployment is active (resolved from TENANT_ID env), but the data layer is
 /// fully tenant-scoped so multiple tenants can share a store.
 model Tenant {
-  id        String   @id // stable slug, e.g. "default"
-  name      String
-  createdAt DateTime @default(now())
-  agents    Agent[]
+  id            String   @id // stable slug, e.g. "default"
+  name          String
+  // Per-tenant conversation-event webhook (assistant_message/set_agent/escalate/
+  // close). When set, events POST here with an HMAC X-Signature; when null, they
+  // fall back to the legacy CHAT_URL internal callback (the in-repo chat service).
+  webhookUrl    String?
+  webhookSecret String? // HMAC-SHA256 secret for the webhook X-Signature
+  // sha256(hex) of the inbound API key for the OpenAI-compatible facade. Auth
+  // resolves the calling tenant by hashing the Bearer token and matching here.
+  apiKeyHash    String?  @unique
+  createdAt     DateTime @default(now())
+  agents        Agent[]
 }
 
 /// AI agent definitions produced by the agent builder.

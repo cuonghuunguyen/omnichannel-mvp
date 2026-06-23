@@ -8,6 +8,8 @@ import cors from "cors";
 import { agentsRouter } from "@/routes/agents";
 import { knowledgeRouter } from "@/routes/knowledge";
 import { chatRouter } from "@/routes/chat";
+import { agentBuilderRouter } from "@/routes/agent-builder";
+import { openaiRouter } from "@/routes/openai";
 import { buildOpenApiDocument } from "@/openapi/document";
 
 const app = express();
@@ -48,6 +50,10 @@ app.get("/docs", (_req, res) => {
 app.use("/agents", agentsRouter);
 app.use("/knowledge", knowledgeRouter);
 app.use("/chat", chatRouter);
+app.use("/agent-builder", agentBuilderRouter);
+// OpenAI-compatible facade (Bearer key → tenant). Lets any OpenAI-protocol
+// client integrate without the AI-SDK/UIMessage + callback contract.
+app.use("/v1", openaiRouter);
 
 // Last-resort error handler (Express 5 forwards async rejections here).
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {

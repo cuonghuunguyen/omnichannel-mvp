@@ -8,6 +8,7 @@ import { pipeUIMessageStreamToResponse } from "ai";
 import { db } from "@/lib/db";
 import { toAgentDTO } from "@/lib/agent-io";
 import { orchestrate } from "@/lib/chat/orchestrate";
+import { loadWebhookTarget } from "@/lib/webhooks/dispatch";
 import { ChatTurnInput } from "@/schemas";
 import { ACTIVE_TENANT_ID } from "@/lib/tenant";
 
@@ -31,11 +32,14 @@ chatRouter.post("/", async (req, res) => {
     return;
   }
 
+  const webhook = await loadWebhookTarget(tenantId);
+
   const stream = orchestrate({
     tenantId,
     conversationId,
     entryAgent: toAgentDTO(agent),
     routingFlag: routingFlag ?? null,
+    webhook,
     messages: messages as never,
   });
 

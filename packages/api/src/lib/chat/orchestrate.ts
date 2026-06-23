@@ -14,13 +14,14 @@ import {
 import { resolveModel, MAX_STEPS_PER_AGENT, MAX_HOPS } from "@/lib/models";
 import { db } from "@/lib/db";
 import { toAgentDTO, type AgentDTO } from "@/lib/agent-io";
-import { textFromParts } from "@/lib/agents/messages";
+import { textFromParts, recentTranscript } from "@/lib/agents/messages";
 import { buildAgentRuntime, loadRoutableAgents } from "@/lib/agents/runtime";
 import { HANDOFF_TOOL_NAMES, type HandoffSignal } from "@/lib/agents/tools";
 import { runInputGuard, DEFAULT_REFUSAL } from "@/lib/agents/guard";
 import { withUniqueBlockIds } from "@/lib/agents/stream-ids";
 import { evaluateHandoffRules } from "@/lib/agents/handoff";
 import { conversationCallbacks } from "@/lib/chat/callbacks";
+import type { WebhookTarget } from "@/lib/webhooks/dispatch";
 import type { ChatUIMessage } from "@/lib/agents/ui-messages";
 
 export type OrchestrateInput = {
@@ -30,6 +31,8 @@ export type OrchestrateInput = {
   /** The current agent (already loaded + tenant-scoped by the route). */
   entryAgent: AgentDTO;
   routingFlag: string | null;
+  /** Where conversation events (persistence/routing/escalation) are delivered. */
+  webhook: WebhookTarget | null;
   messages: ChatUIMessage[];
 };
 
@@ -47,17 +50,30 @@ async function fetchAgent(id: string, tenantId: string): Promise<AgentDTO | null
  */
 export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageChunk> {
   const { tenantId, conversationId, entryAgent, routingFlag, messages } = input;
-  const cb = conversationCallbacks(conversationId);
+  const cb = conversationCallbacks(conversationId, input.webhook);
   const lastUser = [...messages].reverse().find((m) => m.role === "user");
   const lastUserText = lastUser ? textFromParts(lastUser.parts) : "";
 
   return createUIMessageStream<ChatUIMessage>({
     originalMessages: messages,
     execute: async ({ writer }) => {
-      // Input guardrail: classify the latest message against the entry agent's
-      // scope. A block short-circuits with a refusal (+ offer of a human).
+      // Input guardrail: classify the latest message against the *system's*
+      // reachable scope, not just the entry agent's. Other routable agents'
+      // purposes widen the boundary, so an off-agent-but-in-system request is
+      // not refused — it passes through and the loop below hands it off. Only
+      // requests outside every agent (or injection) short-circuit with a refusal.
       const { guardrails } = entryAgent;
-      const verdict = await runInputGuard(entryAgent.model, guardrails, messages);
+      const entryRoutable = await loadRoutableAgents(entryAgent.id, tenantId);
+      const systemScope = entryRoutable
+        .map((a) => `- ${a.name}: ${a.description}`)
+        .filter((line) => line.trim().length > 0)
+        .join("\n");
+      const verdict = await runInputGuard(
+        entryAgent.model,
+        guardrails,
+        messages,
+        systemScope,
+      );
       if (verdict?.blocked) {
         const refusalText = guardrails.refusal?.trim() || DEFAULT_REFUSAL;
         const id = `guard-${crypto.randomUUID()}`;
@@ -91,15 +107,24 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
       let modelMessages: ModelMessage[] = await convertToModelMessages(messages);
       let current = entryAgent;
 
+      // Recent-turn transcript handed to the knowledge tool's query rewriter so
+      // follow-ups resolve to standalone queries. Stable for this user turn.
+      const recentContext = recentTranscript(messages);
+
       for (let hop = 0; hop < MAX_HOPS; hop++) {
         let handoff: HandoffSignal | null = null;
         const sent: string[] = [];
 
-        const routable = await loadRoutableAgents(current.id, tenantId);
+        // Hop 0's current agent is the entry agent, whose roster we already
+        // loaded for the guard above; reuse it instead of querying again.
+        const routable =
+          hop === 0 ? entryRoutable : await loadRoutableAgents(current.id, tenantId);
         const { system, tools, closeMcp } = await buildAgentRuntime(
           current,
           routable,
           tenantId,
+          conversationId,
+          recentContext,
           {
             writer,
             signalHandoff: (s) => {
@@ -126,7 +151,10 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
           });
 
           // One assistant message spans all hops: only the first emits `start`,
-          // and we emit the single `finish` ourselves after the loop.
+          // and we emit the single `finish` ourselves after the loop. The AI SDK
+          // client maps one response stream to one UIMessage, so per-agent
+          // bubbles are split client-side at `data-routing` boundaries (which
+          // carry the next agent's name), not by emitting extra start/finish.
           writer.merge(
             withUniqueBlockIds(
               result.toUIMessageStream({

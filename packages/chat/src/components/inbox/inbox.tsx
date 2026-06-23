@@ -48,7 +48,10 @@ export function Inbox() {
     })();
     // eslint-disable-next-line react-hooks/set-state-in-effect -- async fetch
     refreshList();
-    const t = setInterval(refreshList, 5000);
+    // Poll only to discover brand-new escalations; status changes on the
+    // selected conversation already arrive via its SSE stream (see below), so
+    // a long interval is plenty and keeps idle operators off the network.
+    const t = setInterval(refreshList, 15000);
     return () => clearInterval(t);
   }, [refreshList]);
 

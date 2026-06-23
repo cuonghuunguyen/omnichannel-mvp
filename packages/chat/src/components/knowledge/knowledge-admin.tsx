@@ -37,8 +37,14 @@ export function KnowledgeAdmin() {
   }
 
   useEffect(() => {
+    // Preselect a bucket when deep-linked (e.g. the builder's "View knowledge
+    // base" link, /knowledge?bucket=<id>). Read from the URL on the client to
+    // avoid the Suspense boundary useSearchParams requires.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    load();
+    load().then(() => {
+      const id = new URLSearchParams(window.location.search).get("bucket");
+      if (id) setSelectedId(id);
+    });
   }, []);
 
   const selected =

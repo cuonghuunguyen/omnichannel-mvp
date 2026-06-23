@@ -169,6 +169,18 @@ export const ChatTurnInput = z.object({
   messages: z.array(ChatUIMessageInput),
 });
 
+/**
+ * One turn of the config-builder conversation. Stateless: the chat history plus
+ * the draft agent config built so far. The response is a streamed UIMessage
+ * stream (text + config/knowledge proposal parts), not JSON.
+ */
+export const AgentBuilderInput = z.object({
+  messages: z.array(ChatUIMessageInput),
+  currentDraft: AgentInput.nullable().optional(),
+  /** True when refining an existing agent (vs. designing one from scratch). */
+  editing: z.boolean().optional(),
+});
+
 // ── Response envelopes + common ──────────────────────────────────────────────
 export const ErrorResponse = z.object({ error: z.string() });
 export const OkResponse = z.object({ ok: z.boolean() });
@@ -208,6 +220,7 @@ export const components = {
   SearchInput,
   ChatUIMessageInput,
   ChatTurnInput,
+  AgentBuilderInput,
   ErrorResponse,
   OkResponse,
   AgentResponse,
