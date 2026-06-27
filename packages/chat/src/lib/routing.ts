@@ -16,13 +16,16 @@ export type EntryRouting = {
  *  - flag matches an agent   -> start with that agent (by id or case-insensitive name)
  *  - otherwise               -> the default agent (Agent.isDefault)
  */
-export async function resolveEntryRouting(flag?: string | null): Promise<EntryRouting> {
+export async function resolveEntryRouting(
+  tenantId: string,
+  flag?: string | null,
+): Promise<EntryRouting> {
   if (flag && flag.toLowerCase() === "human") {
     return { assignmentType: "human", agentId: null, agentName: null };
   }
 
   // The API lists agents newest-first; resolve flag → agent, else the default.
-  const agents = await fetchAgents();
+  const agents = await fetchAgents(tenantId);
 
   if (flag) {
     const match = agents.find(

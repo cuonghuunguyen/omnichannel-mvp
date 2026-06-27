@@ -1,11 +1,10 @@
 import "dotenv/config";
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
+import { PrismaMariaDb } from "@prisma/adapter-mariadb";
 import { PrismaClient } from "../src/generated/prisma/client";
 import { hashApiKey } from "../src/lib/auth/api-key";
+import { mariaConfig } from "../src/lib/db";
 
-const adapter = new PrismaBetterSqlite3({
-  url: process.env.DATABASE_URL ?? "file:./agents.db",
-});
+const adapter = new PrismaMariaDb(mariaConfig());
 const db = new PrismaClient({ adapter });
 
 // The human operator that escalations route to. The User row itself lives in the
@@ -13,8 +12,10 @@ const db = new PrismaClient({ adapter });
 // a plain string (no cross-service FK).
 const HUMAN_ID = "seed-human-agent";
 
-// The active tenant these seed agents belong to. Matches TENANT_ID in .env.
-const TENANT_ID = process.env.TENANT_ID?.trim() || "default";
+// The demo tenant these seed agents belong to. Tenants are created at runtime
+// via the chat app's sign-up; this well-known "default" tenant exists only so
+// the seed data has a home. Sign in with the name "Default Tenant" to use it.
+const TENANT_ID = "default";
 
 // Inbound API key for the OpenAI-compatible facade, stored hashed on the tenant.
 // Override with DEV_API_KEY; the default is a well-known dev value.

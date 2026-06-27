@@ -11,7 +11,7 @@ import {
 import { retrieve } from "@/lib/rag/retrieve";
 import { ragError } from "@/lib/rag/errors";
 import { DEFAULT_MODEL_ID } from "@/lib/models";
-import { ACTIVE_TENANT_ID } from "@/lib/tenant";
+import { tenantFromHeader } from "@/lib/tenant";
 import {
   CreateBucketInput,
   IngestDocumentInput,
@@ -20,11 +20,20 @@ import {
 
 export const knowledgeRouter: Router = Router();
 
-// All knowledge reads/writes are scoped to the active tenant.
-const tenantId = ACTIVE_TENANT_ID;
+// All knowledge reads/writes are scoped to the request's tenant (X-Tenant-Id).
+knowledgeRouter.use((req, res, next) => {
+  const tenantId = tenantFromHeader(req);
+  if (!tenantId) {
+    res.status(400).json({ error: "X-Tenant-Id header is required" });
+    return;
+  }
+  res.locals.tenantId = tenantId;
+  next();
+});
 
 /** List knowledge buckets (with document/chunk counts). */
 knowledgeRouter.get("/buckets", async (_req, res) => {
+  const tenantId = String(res.locals.tenantId);
   try {
     res.json({ buckets: await listBuckets(tenantId) });
   } catch (err) {
@@ -34,6 +43,7 @@ knowledgeRouter.get("/buckets", async (_req, res) => {
 
 /** Create a knowledge bucket, pinning its embedding provider + model. */
 knowledgeRouter.post("/buckets", async (req, res) => {
+  const tenantId = String(res.locals.tenantId);
   const parsed = CreateBucketInput.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "invalid body" });
@@ -60,6 +70,7 @@ knowledgeRouter.post("/buckets", async (req, res) => {
 
 /** Fetch a bucket plus its documents. */
 knowledgeRouter.get("/buckets/:id", async (req, res) => {
+  const tenantId = String(res.locals.tenantId);
   try {
     const bucket = await getBucket(req.params.id, tenantId);
     if (!bucket) {
@@ -75,6 +86,7 @@ knowledgeRouter.get("/buckets/:id", async (req, res) => {
 
 /** Delete a bucket (cascades to its documents + chunks). */
 knowledgeRouter.delete("/buckets/:id", async (req, res) => {
+  const tenantId = String(res.locals.tenantId);
   try {
     const ok = await deleteBucket(req.params.id, tenantId);
     if (!ok) {
@@ -89,6 +101,7 @@ knowledgeRouter.delete("/buckets/:id", async (req, res) => {
 
 /** List a bucket's documents. */
 knowledgeRouter.get("/buckets/:id/documents", async (req, res) => {
+  const tenantId = String(res.locals.tenantId);
   try {
     res.json({ documents: await listDocuments(req.params.id, tenantId) });
   } catch (err) {
@@ -98,6 +111,7 @@ knowledgeRouter.get("/buckets/:id/documents", async (req, res) => {
 
 /** Ingest a document into the bucket (chunk → embed → store). */
 knowledgeRouter.post("/buckets/:id/documents", async (req, res) => {
+  const tenantId = String(res.locals.tenantId);
   const parsed = IngestDocumentInput.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "invalid body" });
@@ -132,6 +146,7 @@ knowledgeRouter.post("/buckets/:id/documents", async (req, res) => {
 
 /** Delete a document (cascades to its chunks). */
 knowledgeRouter.delete("/documents/:id", async (req, res) => {
+  const tenantId = String(res.locals.tenantId);
   try {
     const ok = await deleteDocument(req.params.id, tenantId);
     if (!ok) {
@@ -146,6 +161,7 @@ knowledgeRouter.delete("/documents/:id", async (req, res) => {
 
 /** Run the full retrieval pipeline against one or more buckets. */
 knowledgeRouter.post("/search", async (req, res) => {
+  const tenantId = String(res.locals.tenantId);
   const parsed = SearchInput.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "invalid body" });

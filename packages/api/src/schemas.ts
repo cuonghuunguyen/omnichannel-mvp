@@ -162,7 +162,7 @@ export const ChatUIMessageInput = z.object({
  * UIMessage stream, not JSON, so it isn't modeled as a response schema here.
  */
 export const ChatTurnInput = z.object({
-  tenantId: z.string().optional(),
+  tenantId: z.string().min(1),
   conversationId: z.string(),
   agentId: z.string(),
   routingFlag: z.string().nullable().optional(),

@@ -117,7 +117,7 @@ export function KnowledgeAdmin() {
         ) : (
           <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
             Select a knowledge base, or create one. Buckets store embeddings in the
-            pgvector RAG store.
+            Qdrant vector store.
           </div>
         )}
       </section>

@@ -33,6 +33,7 @@ export function ChatApp() {
 
   // Entry-agent picker state (shown before a conversation starts).
   const [agents, setAgents] = useState<AgentChoice[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(true);
   const [selectedAgentId, setSelectedAgentId] = useState<string>("");
 
   // Restore guest identity from localStorage. We optimistically use the stored
@@ -59,14 +60,19 @@ export function ChatApp() {
   useEffect(() => {
     if (!user || conversation) return;
     let cancelled = false;
+    setAgentsLoading(true);
     (async () => {
-      const { data } = await api.GET("/agents");
-      const list: AgentChoice[] = data?.agents ?? [];
-      if (cancelled) return;
-      // Agents that can serve as an entry point: the default plus routable ones.
-      const entry = list.filter((a) => a.isDefault || a.isRoutable);
-      setAgents(entry);
-      setSelectedAgentId(entry.find((a) => a.isDefault)?.id ?? entry[0]?.id ?? "");
+      try {
+        const { data } = await api.GET("/agents");
+        const list: AgentChoice[] = data?.agents ?? [];
+        if (cancelled) return;
+        // Agents that can serve as an entry point: the default plus routable ones.
+        const entry = list.filter((a) => a.isDefault || a.isRoutable);
+        setAgents(entry);
+        setSelectedAgentId(entry.find((a) => a.isDefault)?.id ?? entry[0]?.id ?? "");
+      } finally {
+        if (!cancelled) setAgentsLoading(false);
+      }
     })();
     return () => {
       cancelled = true;
@@ -208,10 +214,13 @@ export function ChatApp() {
                   id="entry-agent"
                   value={selectedAgentId}
                   onChange={(e) => setSelectedAgentId(e.target.value)}
-                  disabled={loading || agents.length === 0}
+                  disabled={loading || agentsLoading || agents.length === 0}
                   className="h-11 w-full rounded-md border border-hairline-strong bg-surface-card px-4 text-sm text-ink outline-none transition-colors focus-visible:border-2 focus-visible:border-ink disabled:opacity-50"
                 >
-                  {agents.length === 0 && <option value="">Loading agents…</option>}
+                  {agentsLoading && <option value="">Loading agents…</option>}
+                  {!agentsLoading && agents.length === 0 && (
+                    <option value="">No agents available</option>
+                  )}
                   {agents.map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.name}
@@ -219,6 +228,15 @@ export function ChatApp() {
                     </option>
                   ))}
                 </select>
+                {!agentsLoading && agents.length === 0 && (
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    No agents are set up for this workspace yet. Add one on the{" "}
+                    <a href="/agents" className="underline">
+                      Agents
+                    </a>{" "}
+                    page to start chatting.
+                  </p>
+                )}
                 {selectedAgentId && (
                   <p className="text-xs leading-relaxed text-muted-foreground">
                     {agents.find((a) => a.id === selectedAgentId)?.description}

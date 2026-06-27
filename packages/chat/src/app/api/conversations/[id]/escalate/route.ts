@@ -25,7 +25,7 @@ export async function POST(
 
   // Pick a human via the current agent's handoff rules (agent lives in the API).
   const agent = conversation.currentAgentId
-    ? await fetchAgent(conversation.currentAgentId)
+    ? await fetchAgent(conversation.tenantId, conversation.currentAgentId)
     : null;
   const rules = agent?.handoffRules ?? [];
   const { humanAgentId } = evaluateHandoffRules(rules, {

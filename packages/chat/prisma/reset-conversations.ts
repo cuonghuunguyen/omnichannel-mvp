@@ -1,10 +1,9 @@
 import "dotenv/config";
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
+import { PrismaMariaDb } from "@prisma/adapter-mariadb";
 import { PrismaClient } from "../src/generated/prisma/client";
+import { mariaConfig } from "../src/lib/db";
 
-const db = new PrismaClient({
-  adapter: new PrismaBetterSqlite3({ url: process.env.DATABASE_URL ?? "file:./dev.db" }),
-});
+const db = new PrismaClient({ adapter: new PrismaMariaDb(mariaConfig()) });
 
 async function main() {
   const m = await db.message.deleteMany({});

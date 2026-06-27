@@ -1,134 +1,110 @@
-// The RAG knowledge store: a dedicated Postgres + pgvector database, separate
-// from the app's SQLite (Prisma) DB. We talk to it with raw SQL via `pg`
-// because pgvector's distance operators and FTS are most naturally expressed in
-// SQL, and Prisma's vector support is limited.
+// The RAG vector store: a Qdrant instance reached over QDRANT_URL by
+// @qdrant/js-client-rest. Qdrant replaces the old Postgres+pgvector store —
+// it gives real ANN (HNSW) per collection, payload filtering, and native hybrid
+// (dense + sparse) search, so the hand-rolled RRF + Postgres FTS machinery is
+// gone (see retrieve.ts).
 //
-// Schema notes:
-// - `chunks.embedding` is an UNCONSTRAINED `vector` column so different buckets
-//   can use different embedding models/dimensions (multi-provider / BYOK). The
-//   cost is that an unconstrained column can't carry an ANN (HNSW/ivfflat)
-//   index, so vector search is a sequential scan with the `<=>` operator. Every
-//   query is scoped to a single bucket, and a bucket pins exactly one
-//   provider+model+dim, so the vectors compared in any one query always share a
-//   dimension. For demo-scale corpora this is fast; pinning a single dimension
-//   and adding an HNSW index is the documented path to scale.
-// - `chunks.tsv` is a generated tsvector with a GIN index, powering the keyword
-//   half of hybrid search.
-import { Pool, type PoolClient, type QueryResultRow } from "pg";
+// Data model:
+// - Collection per (tenant, bucket): the tenant is in the collection NAME, so a
+//   tenant can never reach another's collection. A bucket pins one
+//   provider+model+dimension, so each collection has a fixed dense vector size.
+// - Each collection carries a named DENSE vector ("dense", Cosine — matches the
+//   normalized bge-small embeddings) and a named SPARSE vector ("sparse", with
+//   the IDF modifier) powering the keyword half of hybrid search.
+// - Point = chunk: id = chunk id; vectors = {dense, sparse}; payload carries
+//   tenant_id, bucket_id, document_id, idx, content, metadata, plus the
+//   denormalized document_title / document_source (no joins in Qdrant).
+//
+// The buckets/documents REGISTRY (CRUD, listing, counts) lives in the app's
+// Prisma DB, not here — Qdrant only stores chunk vectors+payload.
+import { QdrantClient } from "@qdrant/js-client-rest";
 
-const globalForRag = globalThis as unknown as { ragPool?: Pool };
+/** Named dense vector used for semantic search. */
+export const DENSE = "dense";
+/** Named sparse vector used for keyword (BM25/IDF) search. */
+export const SPARSE = "sparse";
 
-export function ragPool(): Pool {
-  if (!process.env.RAG_DATABASE_URL) {
+const globalForRag = globalThis as unknown as { qdrant?: QdrantClient };
+
+export function qdrantClient(): QdrantClient {
+  if (!process.env.QDRANT_URL) {
     throw new Error(
-      "RAG_DATABASE_URL is not set. Start the store with `docker compose up -d` " +
-        "and add RAG_DATABASE_URL to .env (e.g. postgresql://rag:rag@localhost:5433/rag).",
+      "QDRANT_URL is not set. Start the store with `docker compose up -d` and add " +
+        "QDRANT_URL to .env (e.g. http://localhost:6333).",
     );
   }
-  if (!globalForRag.ragPool) {
-    globalForRag.ragPool = new Pool({
-      connectionString: process.env.RAG_DATABASE_URL,
-      max: 5,
+  if (!globalForRag.qdrant) {
+    globalForRag.qdrant = new QdrantClient({
+      url: process.env.QDRANT_URL,
+      apiKey: process.env.QDRANT_API_KEY || undefined,
+      // The REST client defaults to checking server compatibility on first call;
+      // skip it so a version skew doesn't hard-fail the store.
+      checkCompatibility: false,
     });
   }
-  return globalForRag.ragPool;
+  return globalForRag.qdrant;
 }
 
-/** Run a parameterized query against the RAG store. */
-export async function ragQuery<T extends QueryResultRow = QueryResultRow>(
-  text: string,
-  params: unknown[] = [],
-): Promise<T[]> {
-  const res = await ragPool().query<T>(text, params);
-  return res.rows;
+/**
+ * Collection name for a bucket. The tenant is encoded in the name so isolation
+ * is structural: a query against another tenant's bucket targets a collection
+ * that doesn't exist for this tenant. Sanitized to Qdrant's allowed charset.
+ */
+export function collectionName(tenantId: string, bucketId: string): string {
+  const safe = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, "_");
+  return `kb_${safe(tenantId)}_${safe(bucketId)}`;
 }
 
-/** Run several statements inside a single transaction. */
-export async function ragTx<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
-  const client = await ragPool().connect();
-  try {
-    await client.query("BEGIN");
-    const out = await fn(client);
-    await client.query("COMMIT");
-    return out;
-  } catch (err) {
-    await client.query("ROLLBACK");
-    throw err;
-  } finally {
-    client.release();
+// Memoize collection bootstrap per name so callers can `await` it cheaply
+// before any read/write without re-issuing the create calls every time.
+const ready = new Map<string, Promise<void>>();
+
+/**
+ * Ensure a bucket's collection exists with the right dense size + Cosine
+ * distance, a sparse vector (IDF), and payload indexes for filtering/deletes.
+ * Idempotent and memoized per process.
+ */
+export function ensureBucketCollection(
+  tenantId: string,
+  bucketId: string,
+  dim: number,
+): Promise<void> {
+  const name = collectionName(tenantId, bucketId);
+  let p = ready.get(name);
+  if (!p) {
+    p = createCollection(name, dim).catch((err) => {
+      // Don't cache a failed bootstrap — let the next call retry.
+      ready.delete(name);
+      throw err;
+    });
+    ready.set(name, p);
+  }
+  return p;
+}
+
+async function createCollection(name: string, dim: number): Promise<void> {
+  const client = qdrantClient();
+  const { exists } = await client.collectionExists(name);
+  if (!exists) {
+    await client.createCollection(name, {
+      vectors: { [DENSE]: { size: dim, distance: "Cosine" } },
+      sparse_vectors: { [SPARSE]: { modifier: "idf" } },
+    });
+  }
+  // Payload indexes for fast filtering and document-scoped deletes. Idempotent:
+  // re-creating an existing index is a no-op on the server.
+  for (const field of ["tenant_id", "bucket_id", "document_id"]) {
+    await client
+      .createPayloadIndex(name, { field_name: field, field_schema: "keyword", wait: true })
+      .catch(() => {
+        /* index already exists — ignore */
+      });
   }
 }
 
-/** pgvector wants a literal like `[0.1,0.2,...]`; cast with `$n::vector`. */
-export function toVectorLiteral(embedding: number[]): string {
-  return `[${embedding.join(",")}]`;
-}
-
-let schemaReady: Promise<void> | null = null;
-
-/**
- * Create the extension + tables + indexes if they don't exist. Idempotent and
- * memoized per process, so callers can `await ensureRagSchema()` cheaply before
- * any read/write without paying for it more than once.
- */
-export function ensureRagSchema(): Promise<void> {
-  if (!schemaReady) schemaReady = createSchema();
-  return schemaReady;
-}
-
-async function createSchema(): Promise<void> {
-  await ragQuery("CREATE EXTENSION IF NOT EXISTS vector");
-
-  // `tenant_id` isolates each tenant's knowledge. Defaults to 'default' so it
-  // back-fills cleanly onto rows created before multi-tenancy.
-  await ragQuery(`
-    CREATE TABLE IF NOT EXISTS buckets (
-      id                 TEXT PRIMARY KEY,
-      tenant_id          TEXT NOT NULL DEFAULT 'default',
-      name               TEXT NOT NULL,
-      description        TEXT NOT NULL DEFAULT '',
-      embedding_provider TEXT NOT NULL,
-      embedding_model    TEXT NOT NULL,
-      embedding_dim      INTEGER NOT NULL,
-      created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `);
-
-  await ragQuery(`
-    CREATE TABLE IF NOT EXISTS documents (
-      id         TEXT PRIMARY KEY,
-      tenant_id  TEXT NOT NULL DEFAULT 'default',
-      bucket_id  TEXT NOT NULL REFERENCES buckets(id) ON DELETE CASCADE,
-      title      TEXT NOT NULL DEFAULT '',
-      source     TEXT NOT NULL DEFAULT '',
-      metadata   JSONB NOT NULL DEFAULT '{}',
-      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `);
-
-  await ragQuery(`
-    CREATE TABLE IF NOT EXISTS chunks (
-      id          TEXT PRIMARY KEY,
-      tenant_id   TEXT NOT NULL DEFAULT 'default',
-      document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-      bucket_id   TEXT NOT NULL REFERENCES buckets(id) ON DELETE CASCADE,
-      idx         INTEGER NOT NULL DEFAULT 0,
-      content     TEXT NOT NULL,
-      metadata    JSONB NOT NULL DEFAULT '{}',
-      embedding   VECTOR,
-      tsv         TSVECTOR GENERATED ALWAYS AS (to_tsvector('english', content)) STORED,
-      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-    )
-  `);
-
-  // Idempotent back-fill for stores created before multi-tenancy.
-  await ragQuery("ALTER TABLE buckets ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default'");
-  await ragQuery("ALTER TABLE documents ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default'");
-  await ragQuery("ALTER TABLE chunks ADD COLUMN IF NOT EXISTS tenant_id TEXT NOT NULL DEFAULT 'default'");
-
-  await ragQuery("CREATE INDEX IF NOT EXISTS chunks_bucket_idx ON chunks(bucket_id)");
-  await ragQuery("CREATE INDEX IF NOT EXISTS chunks_document_idx ON chunks(document_id)");
-  await ragQuery("CREATE INDEX IF NOT EXISTS chunks_tsv_idx ON chunks USING GIN(tsv)");
-  await ragQuery("CREATE INDEX IF NOT EXISTS documents_bucket_idx ON documents(bucket_id)");
-  await ragQuery("CREATE INDEX IF NOT EXISTS buckets_tenant_idx ON buckets(tenant_id)");
+/** Drop a bucket's whole collection (used when the bucket is deleted). */
+export async function dropBucketCollection(tenantId: string, bucketId: string): Promise<void> {
+  const name = collectionName(tenantId, bucketId);
+  ready.delete(name);
+  await qdrantClient().deleteCollection(name);
 }

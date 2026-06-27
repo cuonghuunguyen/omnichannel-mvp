@@ -9,7 +9,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "mysql"
 }
 
 /// A tenant (customer/workspace). Registry is duplicated in the AI Config API's
@@ -31,7 +31,7 @@ model User {
   tenantId      String         @default("default")
   name          String
   kind          String         @default("guest") // "guest" | "human_agent"
-  info          String? // JSON blob of persisted per-user info
+  info          String?        @db.Text // JSON blob of persisted per-user info
   createdAt     DateTime       @default(now())
   conversations Conversation[]
   messages      Message[]      @relation("MessageAuthorUser")
@@ -70,8 +70,8 @@ model Message {
   tenantId        String   @default("default")
   conversationId  String
   role            String // user | assistant | system | tool
-  content         String   @default("") // plain text rendering
-  parts           String? // JSON: full AI SDK UIMessage parts (tool calls, etc.)
+  content         String   @db.Text // plain text rendering (no DB default — MySQL TEXT; always set on create)
+  parts           String?  @db.Text // JSON: full AI SDK UIMessage parts (tool calls, etc.)
   authorAgentId   String? // which AI agent authored (Agent.id in the API service; no FK)
   authorAgentName String? // denormalized agent display name
   authorUserId    String? // which human/guest authored

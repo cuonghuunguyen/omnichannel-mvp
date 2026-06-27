@@ -1,5 +1,9 @@
+"use client";
+
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { useTenant } from "@/components/tenant/tenant-provider";
+import { Button } from "@/components/ui/button";
 
 const LINKS = [
   { href: "/", label: "Chat" },
@@ -9,6 +13,8 @@ const LINKS = [
 ] as const;
 
 export function SiteNav({ current }: { current: string }) {
+  const { tenant, switchTenant } = useTenant();
+
   return (
     <nav className="flex h-16 items-center justify-between border-b border-border bg-background px-6">
       <div className="flex items-center gap-10">
@@ -36,6 +42,14 @@ export function SiteNav({ current }: { current: string }) {
             );
           })}
         </div>
+      </div>
+      <div className="flex items-center gap-3">
+        <span className="text-sm text-muted-foreground">
+          Tenant <span className="font-medium text-ink">{tenant.name}</span>
+        </span>
+        <Button variant="outline" size="sm" onClick={switchTenant}>
+          Switch tenant
+        </Button>
       </div>
     </nav>
   );

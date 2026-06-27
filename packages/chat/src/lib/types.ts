@@ -48,8 +48,8 @@ export type GuardrailsConfig = {
 
 /**
  * RAG config. When `enabled` with at least one bucket, the agent gets a
- * `search_knowledge` tool that retrieves from the assigned buckets (bucket ids
- * live in the Postgres RAG store, referenced here by id — cross-DB, so no FK).
+ * `search_knowledge` tool that retrieves from the assigned buckets (buckets
+ * live in the AI Config API's store, referenced here by id — cross-DB, so no FK).
  */
 export type KnowledgeConfig = {
   enabled?: boolean;

@@ -1,4 +1,5 @@
-// Shared RAG domain types, mirroring the Postgres rows (see src/lib/rag/store.ts).
+// Shared RAG domain types. Buckets/documents are Prisma rows (the registry);
+// chunks are Qdrant points (see src/lib/rag/store.ts).
 
 export type EmbeddingProviderId = "local" | "openai" | "voyage";
 

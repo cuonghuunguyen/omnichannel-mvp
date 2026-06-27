@@ -1,5 +1,7 @@
-// AI-config service schema. Owns only the Agent table; the chat service owns
-// User/Conversation/Message in a separate database (no cross-service FKs).
+// AI-config service schema. Owns the Agent table plus the RAG knowledge
+// registry (Bucket/Document); chunk vectors themselves live in Qdrant, not
+// here. The chat service owns User/Conversation/Message in a separate database
+// (no cross-service FKs).
 
 generator client {
   provider = "prisma-client"
@@ -7,7 +9,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "mysql"
 }
 
 /// A tenant (customer/workspace). Registry is duplicated in the chat service's
@@ -20,13 +22,14 @@ model Tenant {
   // Per-tenant conversation-event webhook (assistant_message/set_agent/escalate/
   // close). When set, events POST here with an HMAC X-Signature; when null, they
   // fall back to the legacy CHAT_URL internal callback (the in-repo chat service).
-  webhookUrl    String?
+  webhookUrl    String?  @db.Text
   webhookSecret String? // HMAC-SHA256 secret for the webhook X-Signature
   // sha256(hex) of the inbound API key for the OpenAI-compatible facade. Auth
   // resolves the calling tenant by hashing the Bearer token and matching here.
   apiKeyHash    String?  @unique
   createdAt     DateTime @default(now())
   agents        Agent[]
+  buckets       Bucket[]
 }
 
 /// AI agent definitions produced by the agent builder.
@@ -34,22 +37,63 @@ model Agent {
   id           String   @id @default(cuid())
   tenantId     String   @default("default")
   name         String
-  description  String   @default("") // surfaced in deliver_to_agent schema
-  systemPrompt String   @default("") // master prompt
+  // NOTE: MySQL TEXT columns can't carry a literal DEFAULT, so these long/JSON
+  // fields have no DB default — create-time defaults are supplied in the app
+  // (see AGENT_CREATE_DEFAULTS in routes/agents.ts).
+  description  String   @db.Text // surfaced in deliver_to_agent schema
+  systemPrompt String   @db.Text // master prompt
   model        String   @default("deepseek-chat")
   temperature  Float    @default(0.7)
   isRoutable   Boolean  @default(true) // can be a deliver_to_agent target
   isDefault    Boolean  @default(false) // entry agent for new conversations
-  builtinTools String   @default("{}") // JSON { sendMessage, deliverToAgent, deliverToHuman, endConversation: bool }
-  customTools  String   @default("[]") // JSON [{ name, description, schema, endpoint }]
-  mcpServers   String   @default("[]") // JSON [{ name, url, headers? }]
-  handoffRules String   @default("[]") // JSON deliver_to_human rules
-  guardrails   String   @default("{}") // JSON { enabled, scope, refusal }
-  knowledge    String   @default("{}") // JSON { enabled, bucketIds, topK } — RAG buckets (Postgres store)
+  builtinTools String   @db.Text // JSON { sendMessage, deliverToAgent, deliverToHuman, endConversation: bool }
+  customTools  String   @db.Text // JSON [{ name, description, schema, endpoint }]
+  mcpServers   String   @db.Text // JSON [{ name, url, headers? }]
+  handoffRules String   @db.Text // JSON deliver_to_human rules
+  guardrails   String   @db.Text // JSON { enabled, scope, refusal }
+  knowledge    String   @db.Text // JSON { enabled, bucketIds, topK } — RAG buckets (Qdrant store)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
+  @@index([tenantId])
+}
+
+/// A RAG knowledge bucket. Pins one embedding provider+model+dimension; its
+/// chunk vectors live in a dedicated Qdrant collection (see lib/rag/store.ts).
+/// This row is the relational registry (CRUD, listing, counts).
+model Bucket {
+  id                String     @id @default(uuid())
+  tenantId          String     @default("default")
+  name              String
+  description       String     @db.Text // no DB default (MySQL TEXT); set in createBucket
+  embeddingProvider String // "local" | "openai" | "voyage"
+  embeddingModel    String
+  embeddingDim      Int
+  createdAt         DateTime   @default(now())
+  documents         Document[]
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+/// A document ingested into a bucket. The text is chunked, embedded, and stored
+/// as points in the bucket's Qdrant collection; this row tracks provenance and
+/// the chunk count for listing. Deleting it also deletes its Qdrant points.
+model Document {
+  id         String   @id @default(uuid())
+  tenantId   String   @default("default")
+  bucketId   String
+  title      String   @db.Text
+  source     String   @db.Text // no DB default (MySQL TEXT); set in ingestDocument
+  metadata   String   @db.Text // JSON blob; set in ingestDocument
+  chunkCount Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  bucket Bucket @relation(fields: [bucketId], references: [id], onDelete: Cascade)
+
+  @@index([bucketId])
   @@index([tenantId])
 }

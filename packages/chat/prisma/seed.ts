@@ -1,16 +1,18 @@
 import "dotenv/config";
-import { PrismaBetterSqlite3 } from "@prisma/adapter-better-sqlite3";
+import { PrismaMariaDb } from "@prisma/adapter-mariadb";
 import { PrismaClient } from "../src/generated/prisma/client";
+import { mariaConfig } from "../src/lib/db";
 
-const adapter = new PrismaBetterSqlite3({
-  url: process.env.DATABASE_URL ?? "file:./dev.db",
-});
+const adapter = new PrismaMariaDb(mariaConfig());
 const db = new PrismaClient({ adapter });
 
 // The chat service owns Users (guests + human operators). Agents live in the AI
 // Config API service and reference this human by id ("seed-human-agent") as a
 // plain string — seed the agents there with `pnpm --filter @agent-routing/api db:seed`.
-const TENANT_ID = process.env.TENANT_ID?.trim() || "default";
+// The demo tenant the seed data belongs to. Tenants are created at runtime via
+// sign-up; this well-known "default" tenant exists only so the seed human
+// operator has a home (mirrored in the API DB). Sign in as "Default Tenant".
+const TENANT_ID = "default";
 
 async function main() {
   // The tenant the seed data belongs to (registry duplicated in the API DB).

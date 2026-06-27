@@ -8,10 +8,11 @@ client, in a pnpm workspace.
 packages/
   chat/        Next.js 16 app — chat UI + real-time backend
                (/api/chat streaming, conversations, SSE, messages,
-                claim/close/escalate, users). Owns SQLite: User/Conversation/Message.
+                claim/close/escalate, users). Owns MySQL: User/Conversation/Message.
   api/         Express service — the AI Config API: agents CRUD + knowledge/RAG
-               (buckets, documents, search). Owns SQLite: Agent. Owns the
-               pgvector RAG store. Routes are described with zod and emitted as
+               (buckets, documents, search). Owns MySQL: Agent + knowledge
+               registry (buckets/documents). Owns the Qdrant vector store
+               (chunk vectors). Routes are described with zod and emitted as
                an OpenAPI 3.0 spec (openapi.json).
   api-client/  TypeScript client generated from api/openapi.json
                (openapi-typescript + openapi-fetch). Consumed by chat.
@@ -34,14 +35,14 @@ flowchart LR
 
     subgraph chat["chat — Next.js 16  (:3000)"]
         ChatAPI["route handlers<br/>/api/chat · conversations · SSE<br/>users · internal callbacks"]
-        ChatDB[("SQLite<br/>User · Conversation · Message")]
+        ChatDB[("MySQL<br/>User · Conversation · Message")]
     end
 
     subgraph api["api — Express  (:4000)"]
         ApiRoutes["/agents · /knowledge · /chat<br/>(zod → OpenAPI)"]
         Orchestrator["orchestration loop<br/>guardrails · tools · handoff"]
-        AgentDB[("SQLite<br/>Agent")]
-        RagDB[("Postgres + pgvector<br/>knowledge store · :5434")]
+        AgentDB[("MySQL<br/>Agent · Bucket · Document")]
+        RagDB[("Qdrant<br/>chunk vectors · :6333")]
     end
 
     LLM["LLM providers<br/>Anthropic · DeepSeek"]
@@ -60,7 +61,7 @@ flowchart LR
 ## Prerequisites
 
 - Node 20+, pnpm
-- Docker (for the pgvector RAG store)
+- Docker (for Qdrant + MySQL)
 - `DEEPSEEK_API_KEY` (and/or `ANTHROPIC_API_KEY`) in `packages/api/.env` and
   `packages/chat/.env` (see the `.env` files for all keys).
 
@@ -70,10 +71,10 @@ flowchart LR
 pnpm install
 
 # Databases
-docker compose up -d                 # pgvector RAG store (host port 5433)
-pnpm --filter @agent-routing/api  exec prisma migrate dev   # Agent DB
+docker compose up -d                 # Qdrant (:6333) + MySQL (:3307)
+pnpm --filter @agent-routing/api  exec prisma migrate dev   # Agent + knowledge registry DB
 pnpm --filter @agent-routing/chat exec prisma migrate dev   # User/Conversation/Message DB
-pnpm rag:setup                       # create pgvector extension + tables
+pnpm rag:setup                       # verify Qdrant + bootstrap bucket collections
 
 # Seed
 pnpm db:seed                         # 3 AI agents (api) + 1 human operator (chat)

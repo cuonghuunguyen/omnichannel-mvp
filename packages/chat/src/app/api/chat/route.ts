@@ -8,7 +8,6 @@ import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { db } from "@/lib/db";
 import { textFromParts, toUIMessage } from "@/lib/messages";
 import { publish } from "@/lib/events";
-import { ACTIVE_TENANT_ID } from "@/lib/tenant";
 import type { ChatUIMessage } from "@/lib/agents/ui-messages";
 
 export const maxDuration = 60;
@@ -82,7 +81,8 @@ export async function POST(req: Request) {
       "X-Internal-Secret": INTERNAL_SECRET,
     },
     body: JSON.stringify({
-      tenantId: ACTIVE_TENANT_ID,
+      // The conversation row already knows its tenant — no cookie lookup needed.
+      tenantId: conversation.tenantId,
       conversationId,
       agentId: conversation.currentAgentId,
       routingFlag: conversation.routingFlag,

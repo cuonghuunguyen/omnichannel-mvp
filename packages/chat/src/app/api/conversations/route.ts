@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { resolveEntryRouting } from "@/lib/routing";
-import { ACTIVE_TENANT_ID } from "@/lib/tenant";
+import { getTenantId } from "@/lib/tenant";
 
 /**
  * List conversations (most recent first). Either:
@@ -9,6 +9,11 @@ import { ACTIVE_TENANT_ID } from "@/lib/tenant";
  *  - `?status=escalated,assigned` — the admin inbox view (comma-separated).
  */
 export async function GET(req: Request) {
+  const tenantId = await getTenantId();
+  if (!tenantId) {
+    return NextResponse.json({ error: "no tenant selected" }, { status: 400 });
+  }
+
   const url = new URL(req.url);
   const userId = url.searchParams.get("userId");
   const status = url.searchParams.get("status");
@@ -22,7 +27,7 @@ export async function GET(req: Request) {
 
   const conversations = await db.conversation.findMany({
     where: {
-      tenantId: ACTIVE_TENANT_ID,
+      tenantId,
       ...(userId ? { userId } : {}),
       ...(status ? { status: { in: status.split(",") } } : {}),
     },
@@ -38,6 +43,11 @@ export async function GET(req: Request) {
 
 /** Start a new conversation (== new session). Initial routing is by flag. */
 export async function POST(req: Request) {
+  const tenantId = await getTenantId();
+  if (!tenantId) {
+    return NextResponse.json({ error: "no tenant selected" }, { status: 400 });
+  }
+
   const { userId, routingFlag, title } = (await req.json()) as {
     userId?: string;
     routingFlag?: string;
@@ -53,11 +63,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "user not found" }, { status: 404 });
   }
 
-  const routing = await resolveEntryRouting(routingFlag);
+  const routing = await resolveEntryRouting(tenantId, routingFlag);
 
   const conversation = await db.conversation.create({
     data: {
-      tenantId: ACTIVE_TENANT_ID,
+      tenantId,
       userId,
       title: title ?? null,
       routingFlag: routingFlag ?? null,

@@ -1,9 +1,20 @@
-// Bucket + document CRUD and ingestion against the RAG store. A bucket pins one
-// embedding provider+model+dimension; documents added to it are chunked,
-// embedded with that provider, and stored for retrieval. Every read/write is
-// scoped to a tenant so one tenant can never see or search another's knowledge.
+// Bucket + document CRUD and ingestion. The relational registry (buckets,
+// documents, counts) lives in the app's Prisma DB; the chunk vectors live in
+// each bucket's Qdrant collection. A bucket pins one embedding
+// provider+model+dimension; documents added to it are chunked, embedded with
+// that provider, and upserted as points. Every read/write is scoped to a tenant
+// so one tenant can never see or search another's knowledge.
 import { randomUUID } from "node:crypto";
-import { ensureRagSchema, ragQuery, ragTx, toVectorLiteral } from "@/lib/rag/store";
+import { db } from "@/lib/db";
+import {
+  collectionName,
+  dropBucketCollection,
+  ensureBucketCollection,
+  qdrantClient,
+  DENSE,
+  SPARSE,
+} from "@/lib/rag/store";
+import { sparseVector } from "@/lib/rag/sparse";
 import {
   defaultEmbeddingConfig,
   dimensionsFor,
@@ -17,52 +28,53 @@ type BucketRow = {
   id: string;
   name: string;
   description: string;
-  embedding_provider: string;
-  embedding_model: string;
-  embedding_dim: number;
-  created_at: Date;
-  document_count?: string;
-  chunk_count?: string;
+  embeddingProvider: string;
+  embeddingModel: string;
+  embeddingDim: number;
+  createdAt: Date;
 };
 
-function toBucket(row: BucketRow): Bucket {
+function toBucket(row: BucketRow, counts?: { docs: number; chunks: number }): Bucket {
   return {
     id: row.id,
     name: row.name,
     description: row.description,
-    embeddingProvider: row.embedding_provider as EmbeddingProviderId,
-    embeddingModel: row.embedding_model,
-    embeddingDim: row.embedding_dim,
-    createdAt: row.created_at.toISOString(),
-    documentCount: row.document_count != null ? Number(row.document_count) : undefined,
-    chunkCount: row.chunk_count != null ? Number(row.chunk_count) : undefined,
+    embeddingProvider: row.embeddingProvider as EmbeddingProviderId,
+    embeddingModel: row.embeddingModel,
+    embeddingDim: row.embeddingDim,
+    createdAt: row.createdAt.toISOString(),
+    documentCount: counts?.docs,
+    chunkCount: counts?.chunks,
   };
 }
 
 export async function listBuckets(tenantId: string): Promise<Bucket[]> {
-  await ensureRagSchema();
-  const rows = await ragQuery<BucketRow>(
-    `SELECT b.*,
-      (SELECT count(*) FROM documents d WHERE d.bucket_id = b.id) AS document_count,
-      (SELECT count(*) FROM chunks c WHERE c.bucket_id = b.id) AS chunk_count
-     FROM buckets b
-     WHERE b.tenant_id = $1
-     ORDER BY b.created_at DESC`,
-    [tenantId],
+  const buckets = await db.bucket.findMany({
+    where: { tenantId },
+    orderBy: { createdAt: "desc" },
+  });
+  // One grouped query for all of this tenant's document/chunk counts.
+  const agg = await db.document.groupBy({
+    by: ["bucketId"],
+    where: { tenantId },
+    _count: { _all: true },
+    _sum: { chunkCount: true },
+  });
+  const byBucket = new Map(
+    agg.map((a) => [a.bucketId, { docs: a._count._all, chunks: a._sum.chunkCount ?? 0 }]),
   );
-  return rows.map(toBucket);
+  return buckets.map((b) => toBucket(b, byBucket.get(b.id) ?? { docs: 0, chunks: 0 }));
 }
 
 export async function getBucket(id: string, tenantId: string): Promise<Bucket | null> {
-  await ensureRagSchema();
-  const rows = await ragQuery<BucketRow>(
-    `SELECT b.*,
-      (SELECT count(*) FROM documents d WHERE d.bucket_id = b.id) AS document_count,
-      (SELECT count(*) FROM chunks c WHERE c.bucket_id = b.id) AS chunk_count
-     FROM buckets b WHERE b.id = $1 AND b.tenant_id = $2`,
-    [id, tenantId],
-  );
-  return rows[0] ? toBucket(rows[0]) : null;
+  const bucket = await db.bucket.findFirst({ where: { id, tenantId } });
+  if (!bucket) return null;
+  const agg = await db.document.aggregate({
+    where: { bucketId: id, tenantId },
+    _count: { _all: true },
+    _sum: { chunkCount: true },
+  });
+  return toBucket(bucket, { docs: agg._count._all, chunks: agg._sum.chunkCount ?? 0 });
 }
 
 /**
@@ -75,15 +87,14 @@ export async function getBucketEmbeddingConfigs(
   tenantId: string,
 ): Promise<Map<string, EmbeddingConfig>> {
   if (ids.length === 0) return new Map();
-  await ensureRagSchema();
-  const rows = await ragQuery<BucketRow>(
-    `SELECT * FROM buckets WHERE id = ANY($1::text[]) AND tenant_id = $2`,
-    [ids, tenantId],
-  );
+  const rows = await db.bucket.findMany({
+    where: { id: { in: ids }, tenantId },
+    select: { id: true, embeddingProvider: true, embeddingModel: true },
+  });
   return new Map(
     rows.map((r) => [
       r.id,
-      { provider: r.embedding_provider as EmbeddingProviderId, model: r.embedding_model },
+      { provider: r.embeddingProvider as EmbeddingProviderId, model: r.embeddingModel },
     ]),
   );
 }
@@ -95,57 +106,61 @@ export async function createBucket(input: {
   provider?: EmbeddingProviderId;
   model?: string;
 }): Promise<Bucket> {
-  await ensureRagSchema();
   const fallback = defaultEmbeddingConfig();
   const provider = input.provider ?? fallback.provider;
   const model = input.model || (input.provider ? "" : fallback.model);
   const resolvedModel = model || fallback.model;
   const dim = dimensionsFor(provider, resolvedModel);
-  const id = randomUUID();
-  const rows = await ragQuery<BucketRow>(
-    `INSERT INTO buckets (id, tenant_id, name, description, embedding_provider, embedding_model, embedding_dim)
-     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-    [
-      id,
-      input.tenantId,
-      input.name.trim(),
-      input.description?.trim() ?? "",
-      provider,
-      resolvedModel,
-      dim,
-    ],
-  );
-  return toBucket(rows[0]);
+  const bucket = await db.bucket.create({
+    data: {
+      tenantId: input.tenantId,
+      name: input.name.trim(),
+      description: input.description?.trim() ?? "",
+      embeddingProvider: provider,
+      embeddingModel: resolvedModel,
+      embeddingDim: dim,
+    },
+  });
+  // Create the Qdrant collection up front so the bucket is searchable even
+  // before its first document is ingested.
+  await ensureBucketCollection(input.tenantId, bucket.id, dim);
+  return toBucket(bucket, { docs: 0, chunks: 0 });
 }
 
 export async function deleteBucket(id: string, tenantId: string): Promise<boolean> {
-  await ensureRagSchema();
-  const res = await ragQuery(
-    `DELETE FROM buckets WHERE id = $1 AND tenant_id = $2 RETURNING id`,
-    [id, tenantId],
-  );
-  return res.length > 0;
+  const bucket = await db.bucket.findFirst({ where: { id, tenantId } });
+  if (!bucket) return false;
+  await db.bucket.delete({ where: { id } }); // cascades documents in Prisma
+  // Drop the whole collection; ignore if it was never created.
+  await dropBucketCollection(tenantId, id).catch(() => {});
+  return true;
 }
 
 type DocumentRow = {
   id: string;
-  bucket_id: string;
+  bucketId: string;
   title: string;
   source: string;
-  metadata: Record<string, unknown>;
-  created_at: Date;
-  chunk_count?: string;
+  metadata: string;
+  chunkCount: number;
+  createdAt: Date;
 };
 
 function toDocument(row: DocumentRow): RagDocument {
+  let metadata: Record<string, unknown> = {};
+  try {
+    metadata = row.metadata ? JSON.parse(row.metadata) : {};
+  } catch {
+    metadata = {};
+  }
   return {
     id: row.id,
-    bucketId: row.bucket_id,
+    bucketId: row.bucketId,
     title: row.title,
     source: row.source,
-    metadata: row.metadata ?? {},
-    createdAt: row.created_at.toISOString(),
-    chunkCount: row.chunk_count != null ? Number(row.chunk_count) : undefined,
+    metadata,
+    createdAt: row.createdAt.toISOString(),
+    chunkCount: row.chunkCount,
   };
 }
 
@@ -153,28 +168,31 @@ export async function listDocuments(
   bucketId: string,
   tenantId: string,
 ): Promise<RagDocument[]> {
-  await ensureRagSchema();
-  const rows = await ragQuery<DocumentRow>(
-    `SELECT d.*, (SELECT count(*) FROM chunks c WHERE c.document_id = d.id) AS chunk_count
-     FROM documents d WHERE d.bucket_id = $1 AND d.tenant_id = $2 ORDER BY d.created_at DESC`,
-    [bucketId, tenantId],
-  );
+  const rows = await db.document.findMany({
+    where: { bucketId, tenantId },
+    orderBy: { createdAt: "desc" },
+  });
   return rows.map(toDocument);
 }
 
 export async function deleteDocument(id: string, tenantId: string): Promise<boolean> {
-  await ensureRagSchema();
-  const res = await ragQuery(
-    `DELETE FROM documents WHERE id = $1 AND tenant_id = $2 RETURNING id`,
-    [id, tenantId],
-  );
-  return res.length > 0;
+  const doc = await db.document.findFirst({ where: { id, tenantId } });
+  if (!doc) return false;
+  await db.document.delete({ where: { id } });
+  // Remove the document's chunk points from its bucket's collection.
+  await qdrantClient()
+    .delete(collectionName(tenantId, doc.bucketId), {
+      wait: true,
+      filter: { must: [{ key: "document_id", match: { value: id } }] },
+    })
+    .catch(() => {});
+  return true;
 }
 
 /**
  * Ingest a document into a bucket: chunk → embed (with the bucket's provider) →
- * persist document + chunks in one transaction. Returns the document with its
- * chunk count. The bucket must belong to the given tenant.
+ * persist the document row + upsert chunk points into Qdrant. Returns the
+ * document with its chunk count. The bucket must belong to the given tenant.
  */
 export async function ingestDocument(
   bucketId: string,
@@ -193,38 +211,53 @@ export async function ingestDocument(
   });
   const embeddings = await provider.embed(chunks, "document");
 
+  await ensureBucketCollection(tenantId, bucketId, bucket.embeddingDim);
+
   const docId = randomUUID();
   const metadata = input.metadata ?? {};
+  const title = input.title.trim();
+  const source = input.source?.trim() ?? "";
 
-  await ragTx(async (client) => {
-    await client.query(
-      `INSERT INTO documents (id, tenant_id, bucket_id, title, source, metadata)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [docId, tenantId, bucketId, input.title.trim(), input.source?.trim() ?? "", metadata],
-    );
-    for (let i = 0; i < chunks.length; i++) {
-      await client.query(
-        `INSERT INTO chunks (id, tenant_id, document_id, bucket_id, idx, content, metadata, embedding)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::vector)`,
-        [
-          randomUUID(),
-          tenantId,
-          docId,
-          bucketId,
-          i,
-          chunks[i],
-          metadata,
-          toVectorLiteral(embeddings[i]),
-        ],
-      );
-    }
+  // Registry row first (so a listing reflects the document), then the vectors.
+  await db.document.create({
+    data: {
+      id: docId,
+      tenantId,
+      bucketId,
+      title,
+      source,
+      metadata: JSON.stringify(metadata),
+      chunkCount: chunks.length,
+    },
   });
+
+  const points = chunks.map((content, i) => {
+    const sparse = sparseVector(content);
+    return {
+      id: randomUUID(),
+      vector: {
+        [DENSE]: embeddings[i],
+        ...(sparse ? { [SPARSE]: sparse } : {}),
+      },
+      payload: {
+        tenant_id: tenantId,
+        bucket_id: bucketId,
+        document_id: docId,
+        idx: i,
+        content,
+        metadata,
+        document_title: title,
+        document_source: source,
+      },
+    };
+  });
+  await qdrantClient().upsert(collectionName(tenantId, bucketId), { wait: true, points });
 
   return {
     id: docId,
     bucketId,
-    title: input.title.trim(),
-    source: input.source?.trim() ?? "",
+    title,
+    source,
     metadata,
     createdAt: new Date().toISOString(),
     chunkCount: chunks.length,

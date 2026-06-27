@@ -1,87 +1,45 @@
 // The full retrieval pipeline used by the search_knowledge tool:
 //   1. rewrite the query (resolve follow-ups, expand keywords)
-//   2. per bucket, run hybrid search: vector (pgvector `<=>`) + keyword (FTS)
-//   3. fuse the ranked lists with Reciprocal Rank Fusion (RRF)
-//   4. rerank the fused top candidates with an LLM and return the top K
+//   2. per bucket, run Qdrant native hybrid search: a dense (semantic) and a
+//      sparse (keyword/IDF) prefetch fused server-side with Reciprocal Rank
+//      Fusion (RRF) — replacing the old pgvector `<=>` + Postgres FTS + the
+//      hand-rolled RRF in this file.
+//   3. merge the per-bucket results and rerank the top candidates with an LLM
 //
 // Buckets are embedded with their own pinned provider, so queries spanning
 // buckets with different embedding dimensions are embedded once per distinct
-// config and searched independently before fusion.
-import { ensureRagSchema, ragQuery, toVectorLiteral } from "@/lib/rag/store";
+// config and searched independently (each in its own collection) before merge.
+import { collectionName, qdrantClient, DENSE, SPARSE } from "@/lib/rag/store";
 import { getBucketEmbeddingConfigs } from "@/lib/rag/buckets";
 import { getEmbeddingProvider, type EmbeddingConfig } from "@/lib/rag/embeddings";
+import { sparseVector } from "@/lib/rag/sparse";
 import { rewriteQuery } from "@/lib/rag/query-rewrite";
 import { llmReranker } from "@/lib/rag/rerank";
 import type { RetrievedChunk } from "@/lib/rag/types";
 
-/** Candidates pulled per (bucket × method) before fusion. */
+/** Candidates pulled per prefetch arm (dense / sparse) before fusion. */
 const CANDIDATES_PER_LIST = 20;
 /** Fused candidates handed to the reranker. */
 const RERANK_POOL = 12;
-/** RRF constant; dampens the influence of low ranks. */
-const RRF_K = 60;
 
-type ChunkRow = {
-  id: string;
-  document_id: string;
-  bucket_id: string;
-  content: string;
-  metadata: Record<string, unknown>;
-  document_title: string;
-  document_source: string;
+type QdrantPoint = {
+  id: string | number;
+  score?: number;
+  payload?: Record<string, unknown> | null;
 };
 
-function toChunk(row: ChunkRow): Omit<RetrievedChunk, "score"> {
+function toChunk(point: QdrantPoint): RetrievedChunk {
+  const p = point.payload ?? {};
   return {
-    id: row.id,
-    documentId: row.document_id,
-    bucketId: row.bucket_id,
-    content: row.content,
-    metadata: row.metadata ?? {},
-    documentTitle: row.document_title,
-    documentSource: row.document_source,
+    id: String(point.id),
+    documentId: String(p.document_id ?? ""),
+    bucketId: String(p.bucket_id ?? ""),
+    content: String(p.content ?? ""),
+    metadata: (p.metadata as Record<string, unknown>) ?? {},
+    documentTitle: String(p.document_title ?? ""),
+    documentSource: String(p.document_source ?? ""),
+    score: point.score ?? 0,
   };
-}
-
-const SELECT = `
-  SELECT c.id, c.document_id, c.bucket_id, c.content, c.metadata,
-         d.title AS document_title, d.source AS document_source
-  FROM chunks c JOIN documents d ON d.id = c.document_id
-`;
-
-async function vectorSearch(bucketId: string, embedding: number[]): Promise<ChunkRow[]> {
-  return ragQuery<ChunkRow>(
-    `${SELECT}
-     WHERE c.bucket_id = $2 AND c.embedding IS NOT NULL
-     ORDER BY c.embedding <=> $1::vector
-     LIMIT $3`,
-    [toVectorLiteral(embedding), bucketId, CANDIDATES_PER_LIST],
-  );
-}
-
-async function keywordSearch(bucketId: string, text: string): Promise<ChunkRow[]> {
-  return ragQuery<ChunkRow>(
-    `${SELECT}, websearch_to_tsquery('english', $1) q
-     WHERE c.bucket_id = $2 AND c.tsv @@ q
-     ORDER BY ts_rank(c.tsv, q) DESC
-     LIMIT $3`,
-    [text, bucketId, CANDIDATES_PER_LIST],
-  );
-}
-
-/** Reciprocal Rank Fusion: merge ranked lists into one score per chunk. */
-function fuse(lists: ChunkRow[][]): RetrievedChunk[] {
-  const scores = new Map<string, number>();
-  const chunks = new Map<string, Omit<RetrievedChunk, "score">>();
-  for (const list of lists) {
-    list.forEach((row, rank) => {
-      scores.set(row.id, (scores.get(row.id) ?? 0) + 1 / (RRF_K + rank + 1));
-      if (!chunks.has(row.id)) chunks.set(row.id, toChunk(row));
-    });
-  }
-  return [...chunks.values()]
-    .map((c) => ({ ...c, score: scores.get(c.id) ?? 0 }))
-    .sort((a, b) => b.score - a.score);
 }
 
 export type RetrieveOptions = {
@@ -100,11 +58,11 @@ export type RetrieveOptions = {
 export async function retrieve(opts: RetrieveOptions): Promise<RetrievedChunk[]> {
   const bucketIds = [...new Set(opts.bucketIds)].filter(Boolean);
   if (bucketIds.length === 0) return [];
-  await ensureRagSchema();
 
   const topK = opts.topK ?? 5;
   const { query, keywords } = await rewriteQuery(opts.pipelineModel, opts.query, opts.context);
-  const ftsText = [query, ...keywords].join(" ");
+  // Sparse arm searches on the query plus expansion keywords for wider recall.
+  const sparse = sparseVector([query, ...keywords].join(" "));
 
   // Embed the query once per distinct bucket embedding config. Scoped by tenant:
   // buckets outside the tenant return no config and are skipped below.
@@ -118,22 +76,50 @@ export async function retrieve(opts: RetrieveOptions): Promise<RetrievedChunk[]>
     }),
   );
 
-  // Hybrid search every bucket, collect all ranked lists for fusion.
-  const lists: ChunkRow[][] = [];
-  await Promise.all(
+  const client = qdrantClient();
+  // Defense-in-depth: the collection name already isolates tenants, but we also
+  // filter on the tenant_id payload so a foreign id can never leak a hit.
+  const tenantFilter = { must: [{ key: "tenant_id", match: { value: opts.tenantId } }] };
+
+  // Hybrid search every bucket (each its own collection), collect all hits.
+  const perBucket = await Promise.all(
     bucketIds.map(async (bucketId) => {
       const cfg = configs.get(bucketId);
-      if (!cfg) return;
-      const embedding = embeddingByKey.get(keyOf(cfg));
-      const [vec, kw] = await Promise.all([
-        embedding ? vectorSearch(bucketId, embedding) : Promise.resolve([]),
-        keywordSearch(bucketId, ftsText),
-      ]);
-      lists.push(vec, kw);
+      if (!cfg) return [] as RetrievedChunk[];
+      const dense = embeddingByKey.get(keyOf(cfg));
+      if (!dense) return [] as RetrievedChunk[];
+      try {
+        const res = await client.query(collectionName(opts.tenantId, bucketId), {
+          prefetch: [
+            { query: dense, using: DENSE, limit: CANDIDATES_PER_LIST },
+            ...(sparse
+              ? [{ query: sparse, using: SPARSE, limit: CANDIDATES_PER_LIST }]
+              : []),
+          ],
+          query: { fusion: "rrf" },
+          filter: tenantFilter,
+          limit: RERANK_POOL,
+          with_payload: true,
+        });
+        return (res.points as QdrantPoint[]).map(toChunk);
+      } catch (err) {
+        // A missing collection (bucket with no ingested docs yet) or transient
+        // error shouldn't fail the whole search — just contribute no hits.
+        console.error(`[rag] search failed for bucket ${bucketId}:`, err);
+        return [] as RetrievedChunk[];
+      }
     }),
   );
 
-  const fused = fuse(lists).slice(0, RERANK_POOL);
+  // Merge across buckets, dedupe by point id, keep the best fusion score.
+  const merged = new Map<string, RetrievedChunk>();
+  for (const chunk of perBucket.flat()) {
+    const existing = merged.get(chunk.id);
+    if (!existing || chunk.score > existing.score) merged.set(chunk.id, chunk);
+  }
+  const fused = [...merged.values()]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, RERANK_POOL);
   if (fused.length === 0) return [];
 
   const rerank = llmReranker(opts.pipelineModel);

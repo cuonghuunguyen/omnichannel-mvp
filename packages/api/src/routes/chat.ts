@@ -10,7 +10,6 @@ import { toAgentDTO } from "@/lib/agent-io";
 import { orchestrate } from "@/lib/chat/orchestrate";
 import { loadWebhookTarget } from "@/lib/webhooks/dispatch";
 import { ChatTurnInput } from "@/schemas";
-import { ACTIVE_TENANT_ID } from "@/lib/tenant";
 
 export const chatRouter: Router = Router();
 
@@ -21,10 +20,9 @@ chatRouter.post("/", async (req, res) => {
     res.status(400).json({ error: "invalid body" });
     return;
   }
-  const { conversationId, agentId, routingFlag, messages } = parsed.data;
-  // Scope to the tenant the chat service declares (defaults to this
-  // deployment's tenant). The agent must belong to that tenant.
-  const tenantId = parsed.data.tenantId ?? ACTIVE_TENANT_ID;
+  // Scope to the tenant the chat service declares (the conversation's tenant).
+  // The agent must belong to that tenant. No env fallback — see lib/tenant.ts.
+  const { tenantId, conversationId, agentId, routingFlag, messages } = parsed.data;
 
   const agent = await db.agent.findFirst({ where: { id: agentId, tenantId } });
   if (!agent) {

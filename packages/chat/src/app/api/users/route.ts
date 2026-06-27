@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { ACTIVE_TENANT_ID } from "@/lib/tenant";
+import { getTenantId } from "@/lib/tenant";
 
 /** List users, optionally filtered by kind (e.g. `?kind=human_agent` for the inbox). */
 export async function GET(req: Request) {
+  const tenantId = await getTenantId();
+  if (!tenantId) {
+    return NextResponse.json({ error: "no tenant selected" }, { status: 400 });
+  }
   const kind = new URL(req.url).searchParams.get("kind");
   const users = await db.user.findMany({
-    where: { tenantId: ACTIVE_TENANT_ID, ...(kind ? { kind } : {}) },
+    where: { tenantId, ...(kind ? { kind } : {}) },
     orderBy: { createdAt: "asc" },
     select: { id: true, name: true, kind: true },
   });
@@ -18,6 +22,11 @@ export async function GET(req: Request) {
  * returning the same user lets their info persist across sessions.
  */
 export async function POST(req: Request) {
+  const tenantId = await getTenantId();
+  if (!tenantId) {
+    return NextResponse.json({ error: "no tenant selected" }, { status: 400 });
+  }
+
   const { name, info } = (await req.json()) as {
     name?: string;
     info?: Record<string, unknown>;
@@ -29,7 +38,7 @@ export async function POST(req: Request) {
   }
 
   const existing = await db.user.findFirst({
-    where: { tenantId: ACTIVE_TENANT_ID, name: trimmed, kind: "guest" },
+    where: { tenantId, name: trimmed, kind: "guest" },
   });
 
   const user = existing
@@ -39,7 +48,7 @@ export async function POST(req: Request) {
       })
     : await db.user.create({
         data: {
-          tenantId: ACTIVE_TENANT_ID,
+          tenantId,
           name: trimmed,
           kind: "guest",
           info: info ? JSON.stringify(info) : null,

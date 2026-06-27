@@ -1,24 +1,48 @@
-# RAG vector store for M9. The app's own data stays in SQLite (Prisma); this
-# Postgres+pgvector instance is a dedicated knowledge store reached over
-# RAG_DATABASE_URL via the `pg` driver (raw SQL, see src/lib/rag/store.ts).
+# Backing services for agent-routing (M12).
+#
+#  - qdrant: the RAG vector store. Replaces the old Postgres+pgvector store —
+#    real ANN (HNSW) per collection plus native hybrid (dense + sparse) search
+#    and payload filtering, reached over QDRANT_URL by @qdrant/js-client-rest
+#    (see packages/api/src/lib/rag/store.ts).
+#  - mysql: the relational DB for BOTH services. One server, two databases
+#    (`agents` for the API, `chat` for the chat app) created by the init script
+#    below. Each service still owns its own database — no cross-service FKs.
 services:
-  rag-db:
-    image: pgvector/pgvector:pg17
-    container_name: agent-routing-rag-db
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: agent-routing-qdrant
     restart: unless-stopped
-    environment:
-      POSTGRES_USER: rag
-      POSTGRES_PASSWORD: rag
-      POSTGRES_DB: rag
     ports:
-      - "5434:5432" # 5434 on host; 5432/5433 clash with local Postgres / litellm_db
+      - "6333:6333" # REST
+      - "6334:6334" # gRPC
     volumes:
-      - rag-pgdata:/var/lib/postgresql/data
+      - qdrant-storage:/qdrant/storage
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U rag -d rag"]
+      # Qdrant ships no shell/curl; hit /healthz via its own bundled binary.
+      test: ["CMD", "/qdrant/qdrant", "--version"]
       interval: 5s
       timeout: 3s
       retries: 10
 
+  mysql:
+    image: mysql:8.4
+    container_name: agent-routing-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_USER: app
+      MYSQL_PASSWORD: app
+    ports:
+      - "3307:3306" # 3307 on host; 3306 clashes with a local MySQL
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./docker/mysql-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+
 volumes:
-  rag-pgdata:
+  qdrant-storage:
+  mysql-data:

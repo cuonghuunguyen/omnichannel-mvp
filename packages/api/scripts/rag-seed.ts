@@ -7,7 +7,6 @@
 // downloads the bge-small model on first run).
 import "dotenv/config";
 import { createBucket, ingestDocument, listBuckets } from "@/lib/rag/buckets";
-import { ragPool } from "@/lib/rag/store";
 import { db } from "@/lib/db";
 
 const DOCS: { title: string; source: string; content: string }[] = [
@@ -68,7 +67,9 @@ Pets: Azure Bay is pet-friendly for dogs under 25 kg. A pet fee of $50 per stay 
   },
 ];
 
-const TENANT_ID = process.env.TENANT_ID?.trim() || "default";
+// The demo tenant the seed knowledge belongs to (see prisma/seed.ts). Tenants
+// are created at runtime via sign-up; "default" is the seeded demo workspace.
+const TENANT_ID = "default";
 
 async function main() {
   // Reuse an existing demo bucket if present, else create one (this tenant's).
@@ -98,7 +99,6 @@ async function main() {
   console.log(`Assigned knowledge base to ${res.count} seeded agent(s).`);
 
   await db.$disconnect();
-  await ragPool().end();
 }
 
 main().catch(async (err) => {

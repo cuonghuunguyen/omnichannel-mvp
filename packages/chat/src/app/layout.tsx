@@ -3,6 +3,7 @@ import { Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
+import { TenantProvider } from "@/components/tenant/tenant-provider";
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
@@ -22,7 +23,9 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${geistMono.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col bg-background text-foreground">
-        <TooltipProvider>{children}</TooltipProvider>
+        <TooltipProvider>
+          <TenantProvider>{children}</TenantProvider>
+        </TooltipProvider>
         <Toaster />
       </body>
     </html>

@@ -68,4 +68,5 @@ Note: Prisma does not auto-load `.env` — `prisma.config.ts` does
 ## Environment
 
 See [`.env.example`](.env.example). Key vars: `DATABASE_URL`, `API_URL`,
-`NEXT_PUBLIC_API_URL`, `TENANT_ID`, `INTERNAL_API_SECRET` (must match the API's).
+`NEXT_PUBLIC_API_URL`, `INTERNAL_API_SECRET` (must match the API's). There is no
+`TENANT_ID` — visitors pick a tenant at the door (sign in / sign up by name).
