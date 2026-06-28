@@ -40,7 +40,18 @@ export function resolveWebhookTarget(
   tenant: { webhookUrl: string | null; webhookSecret: string | null } | null,
 ): WebhookTarget | null {
   if (tenant?.webhookUrl) {
-    return { mode: "signed", url: tenant.webhookUrl, secret: tenant.webhookSecret ?? "" };
+    // WR-03: an empty/absent webhookSecret is a CONFIGURATION ERROR, not a valid signing
+    // key. Signing with "" produces a valid-looking sha256= header that a subscriber which
+    // also defaults to an empty secret would accept — an auth bypass. Treat it as
+    // misconfiguration: skip delivery and log, rather than silently signing with "".
+    const secret = tenant.webhookSecret?.trim();
+    if (!secret) {
+      console.error(
+        "[webhook] tenant has a webhookUrl but no webhookSecret configured — refusing to sign with an empty secret; dropping delivery",
+      );
+      return null;
+    }
+    return { mode: "signed", url: tenant.webhookUrl, secret };
   }
   const chatUrl = process.env.CHAT_URL?.trim();
   if (chatUrl) {
@@ -66,10 +77,50 @@ function sign(secret: string, body: string): string {
   return `sha256=${crypto.createHmac("sha256", secret).update(body).digest("hex")}`;
 }
 
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * WR-03: bounded retry-with-backoff for transient failures (network error or 5xx).
+ * 4xx responses are NOT retried — they are permanent (bad signature, 4xx contract
+ * mismatch) and retrying only amplifies load. Returns true on a delivered (2xx) POST.
+ */
+async function postWithRetry(
+  url: string,
+  init: { headers: Record<string, string>; body: string },
+  eventType: string,
+  attempts: number,
+): Promise<boolean> {
+  // Backoff schedule (ms) — index by (attempt - 1); clamp to the last entry.
+  const backoff = [250, 1000, 3000];
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      const res = await fetch(url, { method: "POST", headers: init.headers, body: init.body });
+      if (res.ok) return true;
+      const transient = res.status >= 500;
+      console.error(
+        `[webhook] ${eventType} failed (${res.status}) attempt ${attempt}/${attempts}:`,
+        await res.text().catch(() => ""),
+      );
+      if (!transient) return false; // 4xx: permanent — do not retry
+    } catch (err) {
+      console.error(`[webhook] ${eventType} request failed attempt ${attempt}/${attempts}:`, err);
+    }
+    if (attempt < attempts) {
+      await sleep(backoff[Math.min(attempt - 1, backoff.length - 1)]);
+    }
+  }
+  return false;
+}
+
 /**
  * Deliver one event. Best-effort relative to the live stream: a failed POST is
  * logged but never throws, so a missing/broken webhook can't abort the agent's
  * turn (the caller still gets its reply).
+ *
+ * WR-03: assistant_message is the customer-facing reply — losing it on a transient
+ * 5xx/network blip silently drops the AI's answer after the provider key was already
+ * spent. Such events get a bounded retry-with-backoff; non-customer-facing state events
+ * (set_agent/escalate/close) keep the single-attempt best-effort behaviour.
  */
 export async function dispatchEvent(
   target: WebhookTarget | null,
@@ -95,11 +146,13 @@ export async function dispatchEvent(
         "X-Signature": sign(target.secret, body),
       };
     }
-    const res = await fetch(url, { method: "POST", headers, body });
-    if (!res.ok) {
+    // The eventId in the signed body makes retries idempotent on the subscriber side
+    // (Laravel dedups via messages.dedup_id), so re-POSTing the same body is safe.
+    const attempts = event.type === "assistant_message" ? 4 : 1;
+    const delivered = await postWithRetry(url, { headers, body }, event.type, attempts);
+    if (!delivered && event.type === "assistant_message") {
       console.error(
-        `[webhook] ${event.type} failed (${res.status}):`,
-        await res.text().catch(() => ""),
+        `[webhook] assistant_message permanently undelivered after ${attempts} attempts for conversation ${conversationId} — the customer's reply was lost`,
       );
     }
   } catch (err) {

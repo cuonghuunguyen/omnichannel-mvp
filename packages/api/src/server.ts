@@ -22,10 +22,17 @@ const app = express();
 app.use(stripProviderKey);
 
 // The chat service's browser admin UI calls this API cross-origin; allow it.
-// CORS_ORIGIN can pin a single origin in production; defaults to reflecting any.
+// WR-02: fail closed. CORS_ORIGIN is an explicit allowlist of origins; when unset we
+// default to an EMPTY list (no cross-origin browser access) rather than reflecting any
+// Origin. This service proxies BYOK provider keys, so a default-open policy is a needless
+// exposure. Operators must opt into broader origins explicitly via CORS_ORIGIN.
+const corsOrigins =
+  process.env.CORS_ORIGIN?.split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0) ?? [];
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN?.split(",").map((s) => s.trim()) ?? true,
+    origin: corsOrigins,
   }),
 );
 app.use(express.json({ limit: "8mb" }));

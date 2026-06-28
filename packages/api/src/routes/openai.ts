@@ -133,7 +133,23 @@ openaiRouter.post("/chat/completions", async (req, res) => {
       await drainText(uiStream, (delta) => send(chunk({ content: delta }, null)));
       send(chunk({}, "stop"));
     } catch (err) {
+      // WR-07: do NOT swallow the error and emit a clean [DONE] — that signals a
+      // successful completion to the client for a turn that actually failed (and may have
+      // only partially dispatched the assistant_message webhook). Emit an explicit error
+      // signal: an OpenAI error chunk plus a finish_reason: "error" terminal chunk, so the
+      // client (and any OpenAI-protocol consumer) can detect the truncated/failed turn.
       console.error("[openai] stream error:", err);
+      send({
+        id,
+        object: "chat.completion.chunk",
+        created,
+        model,
+        choices: [{ index: 0, delta: {}, finish_reason: "error" }],
+        error: {
+          message: "Error generating completion.",
+          type: "server_error",
+        },
+      });
     }
     res.write("data: [DONE]\n\n");
     res.end();
