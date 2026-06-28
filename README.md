@@ -26,8 +26,8 @@ agent config from the API over HTTP via the generated, typed `api-client`
 knowledge; `search_knowledge` calls the API's retrieval pipeline). Cross-service
 references (`Conversation.currentAgentId`, `Message.authorAgentId`) are plain
 string ids — the agent's display name is denormalized onto those rows so chat
-history renders without a cross-service call. See [`DESIGN.md`](DESIGN.md) and
-[`TASKS.md`](TASKS.md).
+history renders without a cross-service call. See [`DESIGN.md`](DESIGN.md) for
+the architecture and [`tasks/`](tasks/) for the milestone-by-milestone build log.
 
 ```mermaid
 flowchart LR

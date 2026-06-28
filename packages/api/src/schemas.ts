@@ -88,7 +88,21 @@ export const AgentInput = z
   .partial();
 
 // ── Knowledge / RAG ──────────────────────────────────────────────────────────
-export const EmbeddingProviderId = z.enum(["local", "openai", "voyage"]);
+export const EmbeddingProviderId = z.enum([
+  "local",
+  "openai",
+  "voyage",
+  "voyage-multimodal",
+]);
+
+/** Bucket-creation provider: a concrete provider or "auto" (resolve from config). */
+export const CreateBucketProvider = z.enum([
+  "local",
+  "openai",
+  "voyage",
+  "voyage-multimodal",
+  "auto",
+]);
 
 export const Bucket = z.object({
   id: z.string(),
@@ -126,15 +140,35 @@ export const RetrievedChunk = z.object({
 export const CreateBucketInput = z.object({
   name: z.string(),
   description: z.string().optional(),
-  provider: EmbeddingProviderId.optional(),
+  provider: CreateBucketProvider.optional(),
   model: z.string().optional(),
 });
+
+/** How a document is split into chunks; `auto` is detected from the content. */
+export const ChunkStrategy = z.enum([
+  "auto",
+  "markdown",
+  "recursive",
+  "paragraph",
+  "sentence",
+]);
 
 export const IngestDocumentInput = z.object({
   title: z.string(),
   source: z.string().optional(),
   content: z.string(),
   metadata: z.record(z.string(), z.unknown()).optional(),
+  chunkStrategy: ChunkStrategy.optional(),
+});
+
+/**
+ * Multipart file-ingest fields (the file rides as `file`; these are text form
+ * fields). Numbers/objects arrive as strings, so this only covers the strings.
+ */
+export const IngestFileInput = z.object({
+  title: z.string().optional(),
+  source: z.string().optional(),
+  chunkStrategy: ChunkStrategy.optional(),
 });
 
 export const SearchInput = z.object({
@@ -216,7 +250,9 @@ export const components = {
   RagDocument,
   RetrievedChunk,
   CreateBucketInput,
+  ChunkStrategy,
   IngestDocumentInput,
+  IngestFileInput,
   SearchInput,
   ChatUIMessageInput,
   ChatTurnInput,

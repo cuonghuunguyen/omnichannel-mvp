@@ -1,7 +1,10 @@
 // Shared RAG domain types. Buckets/documents are Prisma rows (the registry);
 // chunks are Qdrant points (see src/lib/rag/store.ts).
 
-export type EmbeddingProviderId = "local" | "openai" | "voyage";
+// "voyage-multimodal" embeds text and images into one shared vector space, so a
+// bucket pinned to it can store and retrieve both. The text-only providers stay
+// as-is; images sent to a text bucket are converted to text first (OCR/caption).
+export type EmbeddingProviderId = "local" | "openai" | "voyage" | "voyage-multimodal";
 
 export type Bucket = {
   id: string;

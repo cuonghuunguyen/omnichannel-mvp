@@ -16,13 +16,20 @@ import {
 } from "@/lib/rag/store";
 import { sparseVector } from "@/lib/rag/sparse";
 import {
-  defaultEmbeddingConfig,
   dimensionsFor,
   getEmbeddingProvider,
+  isMultimodalProvider,
+  PROVIDER_DEFAULTS,
   type EmbeddingConfig,
 } from "@/lib/rag/embeddings";
-import { chunkText } from "@/lib/rag/chunk";
+import { resolveAutoEmbedding } from "@/lib/rag/resolve";
+import { chunkDocument, type Chunk, type ChunkStrategy } from "@/lib/rag/chunk";
+import { extractFile, type ExtractedImage } from "@/lib/rag/extract";
+import { imageToText } from "@/lib/rag/extract/vision";
 import type { Bucket, EmbeddingProviderId, RagDocument } from "@/lib/rag/types";
+
+/** An image to embed natively into a multimodal bucket, plus its display text. */
+type ImageUnit = { image: ExtractedImage; text: string };
 
 type BucketRow = {
   id: string;
@@ -103,13 +110,22 @@ export async function createBucket(input: {
   tenantId: string;
   name: string;
   description?: string;
-  provider?: EmbeddingProviderId;
+  /** A concrete provider, or "auto" to pick the best available from config. */
+  provider?: EmbeddingProviderId | "auto";
   model?: string;
 }): Promise<Bucket> {
-  const fallback = defaultEmbeddingConfig();
-  const provider = input.provider ?? fallback.provider;
-  const model = input.model || (input.provider ? "" : fallback.model);
-  const resolvedModel = model || fallback.model;
+  let provider: EmbeddingProviderId;
+  let resolvedModel: string;
+  if (!input.provider || input.provider === "auto") {
+    // Auto-detect the embedding algorithm from what's configured, unless a model
+    // was given explicitly (then honor the system default provider for it).
+    const auto = resolveAutoEmbedding();
+    provider = auto.provider;
+    resolvedModel = input.model || auto.model;
+  } else {
+    provider = input.provider;
+    resolvedModel = input.model || PROVIDER_DEFAULTS[provider].model;
+  }
   const dim = dimensionsFor(provider, resolvedModel);
   const bucket = await db.bucket.create({
     data: {
@@ -190,34 +206,64 @@ export async function deleteDocument(id: string, tenantId: string): Promise<bool
 }
 
 /**
- * Ingest a document into a bucket: chunk → embed (with the bucket's provider) →
- * persist the document row + upsert chunk points into Qdrant. Returns the
- * document with its chunk count. The bucket must belong to the given tenant.
+ * Embedding input for a chunk: the structural context (doc title + heading path)
+ * is prepended so the embedder sees a self-contained passage ("contextual
+ * retrieval"), but the raw chunk text is what we store + show in citations.
  */
-export async function ingestDocument(
-  bucketId: string,
-  tenantId: string,
-  input: { title: string; source?: string; content: string; metadata?: Record<string, unknown> },
-): Promise<RagDocument> {
-  const bucket = await getBucket(bucketId, tenantId);
-  if (!bucket) throw new Error("bucket not found");
+function embedInput(title: string, chunk: Chunk): string {
+  const ctx = [title.trim(), chunk.context].filter(Boolean).join(" › ");
+  return ctx ? `${ctx}\n\n${chunk.content}` : chunk.content;
+}
 
-  const chunks = chunkText(input.content);
-  if (chunks.length === 0) throw new Error("document has no content to ingest");
+/**
+ * Shared ingestion tail: embed chunks with the bucket's provider, persist the
+ * document registry row, and upsert the chunk points into Qdrant. Both text and
+ * file ingestion funnel through here so chunking/embedding/storage stay in sync.
+ */
+async function storeDocument(args: {
+  bucket: Bucket;
+  tenantId: string;
+  bucketId: string;
+  title: string;
+  source: string;
+  metadata: Record<string, unknown>;
+  chunks: Chunk[];
+  /** Images embedded natively (multimodal buckets only). */
+  images?: ImageUnit[];
+}): Promise<RagDocument> {
+  const { bucket, tenantId, bucketId, title, source, metadata } = args;
+  const chunks = args.chunks;
+  const images = args.images ?? [];
+  if (chunks.length === 0 && images.length === 0) {
+    throw new Error("document has no content to ingest");
+  }
 
   const provider = getEmbeddingProvider({
     provider: bucket.embeddingProvider,
     model: bucket.embeddingModel,
   });
-  const embeddings = await provider.embed(chunks, "document");
+
+  // Text chunks (context-prefixed) and images each embed into the same space.
+  const textEmbeddings = await provider.embed(
+    chunks.map((c) => embedInput(title, c)),
+    "document",
+  );
+  const imageEmbeddings =
+    images.length && provider.embedMultimodal
+      ? await provider.embedMultimodal(
+          images.map((u) => ({
+            type: "image" as const,
+            data: u.image.data.toString("base64"),
+            mediaType: u.image.mediaType,
+          })),
+          "document",
+        )
+      : [];
 
   await ensureBucketCollection(tenantId, bucketId, bucket.embeddingDim);
 
+  const totalPoints = chunks.length + imageEmbeddings.length;
   const docId = randomUUID();
-  const metadata = input.metadata ?? {};
-  const title = input.title.trim();
-  const source = input.source?.trim() ?? "";
-
   // Registry row first (so a listing reflects the document), then the vectors.
   await db.document.create({
     data: {
@@ -227,30 +273,42 @@ export async function ingestDocument(
       title,
       source,
       metadata: JSON.stringify(metadata),
-      chunkCount: chunks.length,
+      chunkCount: totalPoints,
     },
   });
 
-  const points = chunks.map((content, i) => {
+  const point = (
+    idx: number,
+    embedding: number[],
+    content: string,
+    extra: Record<string, unknown>,
+  ) => {
     const sparse = sparseVector(content);
     return {
       id: randomUUID(),
-      vector: {
-        [DENSE]: embeddings[i],
-        ...(sparse ? { [SPARSE]: sparse } : {}),
-      },
+      vector: { [DENSE]: embedding, ...(sparse ? { [SPARSE]: sparse } : {}) },
       payload: {
         tenant_id: tenantId,
         bucket_id: bucketId,
         document_id: docId,
-        idx: i,
+        idx,
         content,
         metadata,
         document_title: title,
         document_source: source,
+        ...extra,
       },
     };
-  });
+  };
+
+  const points = [
+    ...chunks.map((chunk, i) =>
+      point(i, textEmbeddings[i], chunk.content, chunk.context ? { context: chunk.context } : {}),
+    ),
+    ...imageEmbeddings.map((embedding, j) =>
+      point(chunks.length + j, embedding, images[j].text || "[image]", { modality: "image" }),
+    ),
+  ];
   await qdrantClient().upsert(collectionName(tenantId, bucketId), { wait: true, points });
 
   return {
@@ -260,6 +318,113 @@ export async function ingestDocument(
     source,
     metadata,
     createdAt: new Date().toISOString(),
-    chunkCount: chunks.length,
+    chunkCount: totalPoints,
   };
+}
+
+/**
+ * Ingest pre-extracted text into a bucket: chunk (structure-aware, auto-detected)
+ * → embed → store. The bucket must belong to the given tenant.
+ */
+export async function ingestDocument(
+  bucketId: string,
+  tenantId: string,
+  input: {
+    title: string;
+    source?: string;
+    content: string;
+    metadata?: Record<string, unknown>;
+    chunkStrategy?: ChunkStrategy;
+  },
+): Promise<RagDocument> {
+  const bucket = await getBucket(bucketId, tenantId);
+  if (!bucket) throw new Error("bucket not found");
+
+  const { chunks, strategy } = chunkDocument(input.content, { strategy: input.chunkStrategy });
+  return storeDocument({
+    bucket,
+    tenantId,
+    bucketId,
+    title: input.title.trim(),
+    source: input.source?.trim() ?? "",
+    metadata: { ...(input.metadata ?? {}), sourceType: "text", chunkStrategy: strategy },
+    chunks,
+  });
+}
+
+/**
+ * Ingest an uploaded file: extract to text (markitdown-style) → chunk (strategy
+ * auto-detected from the extracted format) → embed → store. Image embedding is
+ * layered on in Phase 2; here a file's text representation is what's indexed.
+ */
+export async function ingestFile(
+  bucketId: string,
+  tenantId: string,
+  input: {
+    buffer: Buffer;
+    filename: string;
+    mimeType?: string;
+    title?: string;
+    source?: string;
+    metadata?: Record<string, unknown>;
+    chunkStrategy?: ChunkStrategy;
+  },
+): Promise<RagDocument> {
+  const bucket = await getBucket(bucketId, tenantId);
+  if (!bucket) throw new Error("bucket not found");
+
+  const extracted = await extractFile({
+    buffer: input.buffer,
+    filename: input.filename,
+    mimeType: input.mimeType,
+  });
+  const { chunks, strategy } = chunkDocument(extracted.text, {
+    strategy: input.chunkStrategy,
+    format: extracted.format,
+  });
+
+  // Decide how images are handled by the bucket's embedder:
+  //  - multimodal bucket → embed images natively (true shared-space retrieval)
+  //  - text bucket → fall back: OCR/caption each image into a text chunk
+  const multimodal = isMultimodalProvider(bucket.embeddingProvider);
+  const images: ImageUnit[] = [];
+  if (extracted.images.length) {
+    if (multimodal) {
+      for (const image of extracted.images) {
+        images.push({ image, text: image.text?.trim() ?? "" });
+      }
+    } else {
+      for (const image of extracted.images) {
+        const text = await imageToText(image);
+        if (text) chunks.push({ content: text, context: "image" });
+      }
+    }
+  }
+
+  if (chunks.length === 0 && images.length === 0) {
+    throw new Error(
+      `no extractable text in ${input.filename} (${extracted.meta.sourceFormat})` +
+        (extracted.warnings?.length ? `: ${extracted.warnings.join("; ")}` : ""),
+    );
+  }
+
+  return storeDocument({
+    bucket,
+    tenantId,
+    bucketId,
+    title: (input.title || extracted.meta.title || input.filename).trim(),
+    source: input.source?.trim() || input.filename,
+    metadata: {
+      ...(input.metadata ?? {}),
+      sourceType: "file",
+      sourceFormat: extracted.meta.sourceFormat,
+      mimeType: input.mimeType,
+      chunkStrategy: strategy,
+      ...(extracted.images.length
+        ? { imageCount: extracted.images.length, imageMode: multimodal ? "embedded" : "text" }
+        : {}),
+    },
+    chunks,
+    images,
+  });
 }

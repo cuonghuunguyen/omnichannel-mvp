@@ -1,10 +1,12 @@
 import { Router } from "express";
+import multer from "multer";
 import {
   createBucket,
   deleteBucket,
   deleteDocument,
   getBucket,
   ingestDocument,
+  ingestFile,
   listBuckets,
   listDocuments,
 } from "@/lib/rag/buckets";
@@ -15,10 +17,34 @@ import { tenantFromHeader } from "@/lib/tenant";
 import {
   CreateBucketInput,
   IngestDocumentInput,
+  IngestFileInput,
   SearchInput,
 } from "@/schemas";
 
 export const knowledgeRouter: Router = Router();
+
+/** In-memory upload for the file-ingest route; extraction works on the buffer. */
+const MAX_FILE_BYTES = Number(process.env.RAG_MAX_FILE_BYTES) || 25 * 1024 * 1024;
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_FILE_BYTES, files: 1 },
+});
+
+/** Run multer for one field, translating its errors into clean HTTP responses. */
+function uploadSingle(field: string): import("express").RequestHandler {
+  const mw = upload.single(field);
+  return (req, res, next) => {
+    mw(req, res, (err: unknown) => {
+      if (!err) return next();
+      const code = (err as { code?: string }).code;
+      if (code === "LIMIT_FILE_SIZE") {
+        res.status(413).json({ error: `file exceeds the ${MAX_FILE_BYTES}-byte limit` });
+        return;
+      }
+      res.status(400).json({ error: "file upload failed" });
+    });
+  };
+}
 
 // All knowledge reads/writes are scoped to the request's tenant (X-Tenant-Id).
 knowledgeRouter.use((req, res, next) => {
@@ -132,12 +158,54 @@ knowledgeRouter.post("/buckets/:id/documents", async (req, res) => {
       source: input.source,
       content: input.content,
       metadata: input.metadata,
+      chunkStrategy: input.chunkStrategy,
     });
     res.status(201).json({ document });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg === "bucket not found") {
       res.status(404).json({ error: "bucket not found" });
+      return;
+    }
+    res.status(503).json({ error: ragError(err) });
+  }
+});
+
+/**
+ * Ingest an uploaded file into the bucket (extract → chunk → embed → store).
+ * multipart/form-data: `file` is the document; `title`, `source`, and
+ * `chunkStrategy` are optional text fields.
+ */
+knowledgeRouter.post("/buckets/:id/files", uploadSingle("file"), async (req, res) => {
+  const tenantId = String(res.locals.tenantId);
+  const file = req.file;
+  if (!file) {
+    res.status(400).json({ error: "file is required (multipart field 'file')" });
+    return;
+  }
+  const parsed = IngestFileInput.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: "invalid fields" });
+    return;
+  }
+  try {
+    const document = await ingestFile(String(req.params.id), tenantId, {
+      buffer: file.buffer,
+      filename: file.originalname,
+      mimeType: file.mimetype,
+      title: parsed.data.title,
+      source: parsed.data.source,
+      chunkStrategy: parsed.data.chunkStrategy,
+    });
+    res.status(201).json({ document });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg === "bucket not found") {
+      res.status(404).json({ error: "bucket not found" });
+      return;
+    }
+    if (msg.startsWith("no extractable text")) {
+      res.status(422).json({ error: msg });
       return;
     }
     res.status(503).json({ error: ragError(err) });

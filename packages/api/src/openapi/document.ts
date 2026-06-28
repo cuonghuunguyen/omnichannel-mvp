@@ -276,6 +276,43 @@ export function buildOpenApiDocument() {
           },
         },
       },
+      "/knowledge/buckets/{id}/files": {
+        post: {
+          operationId: "ingestFile",
+          summary: "Ingest an uploaded file (extract → chunk → embed → store)",
+          description:
+            "Upload a file (PDF, DOCX, PPTX, XLSX, HTML, Markdown, CSV, text, image) " +
+            "as multipart/form-data. The file is converted to text, chunked with an " +
+            "auto-detected strategy, embedded with the bucket's provider, and stored.",
+          tags: ["knowledge"],
+          parameters: [idParam],
+          requestBody: {
+            required: true,
+            content: {
+              "multipart/form-data": {
+                schema: {
+                  type: "object",
+                  required: ["file"],
+                  properties: {
+                    file: { type: "string", format: "binary" },
+                    title: { type: "string" },
+                    source: { type: "string" },
+                    chunkStrategy: ref("ChunkStrategy"),
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            "201": resp("Ingested document", "DocumentResponse"),
+            "400": resp("Missing/invalid file or fields", "ErrorResponse"),
+            "404": resp("Bucket not found", "ErrorResponse"),
+            "413": resp("File too large", "ErrorResponse"),
+            "422": resp("No extractable text in file", "ErrorResponse"),
+            "503": resp("RAG store unavailable", "ErrorResponse"),
+          },
+        },
+      },
       "/knowledge/documents/{id}": {
         delete: {
           operationId: "deleteDocument",
