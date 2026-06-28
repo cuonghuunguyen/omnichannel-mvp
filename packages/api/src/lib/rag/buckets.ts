@@ -88,10 +88,15 @@ export async function getBucket(id: string, tenantId: string): Promise<Bucket | 
  * Resolve only the embedding config buckets need at query time (cheap). Scoped
  * by tenant: buckets outside the tenant are simply not returned, so retrieval
  * over a foreign bucket id finds no config and searches nothing.
+ *
+ * @param embeddingApiKey - Optional inline BYOK embedding key (from X-Embedding-Key
+ *   header). When provided, spread onto each config's `apiKey` field so the
+ *   tenant's key is used instead of any shared env key (D-04).
  */
 export async function getBucketEmbeddingConfigs(
   ids: string[],
   tenantId: string,
+  embeddingApiKey?: string,
 ): Promise<Map<string, EmbeddingConfig>> {
   if (ids.length === 0) return new Map();
   const rows = await db.bucket.findMany({
@@ -101,7 +106,11 @@ export async function getBucketEmbeddingConfigs(
   return new Map(
     rows.map((r) => [
       r.id,
-      { provider: r.embeddingProvider as EmbeddingProviderId, model: r.embeddingModel },
+      {
+        provider: r.embeddingProvider as EmbeddingProviderId,
+        model: r.embeddingModel,
+        ...(embeddingApiKey ? { apiKey: embeddingApiKey } : {}),
+      },
     ]),
   );
 }
@@ -113,6 +122,13 @@ export async function createBucket(input: {
   /** A concrete provider, or "auto" to pick the best available from config. */
   provider?: EmbeddingProviderId | "auto";
   model?: string;
+  /**
+   * Inline BYOK embedding key from the request (X-Embedding-Key). Carried here
+   * for D-04 enforcement: if the bucket pins a non-local provider and no inline
+   * key is present, callers should not proceed to embed. The key is NOT stored
+   * in the bucket record — it is an inline per-request secret (D-02).
+   */
+  embeddingApiKey?: string;
 }): Promise<Bucket> {
   let provider: EmbeddingProviderId;
   let resolvedModel: string;
@@ -230,6 +246,12 @@ async function storeDocument(args: {
   chunks: Chunk[];
   /** Images embedded natively (multimodal buckets only). */
   images?: ImageUnit[];
+  /**
+   * Inline BYOK embedding key (from X-Embedding-Key header). Passed into the
+   * EmbeddingConfig so the tenant's own key is used for the embed call (D-02/D-04).
+   * Never logged or persisted here.
+   */
+  embeddingApiKey?: string;
 }): Promise<RagDocument> {
   const { bucket, tenantId, bucketId, title, source, metadata } = args;
   const chunks = args.chunks;
@@ -241,6 +263,7 @@ async function storeDocument(args: {
   const provider = getEmbeddingProvider({
     provider: bucket.embeddingProvider,
     model: bucket.embeddingModel,
+    ...(args.embeddingApiKey ? { apiKey: args.embeddingApiKey } : {}),
   });
 
   // Text chunks (context-prefixed) and images each embed into the same space.
@@ -350,6 +373,8 @@ export async function ingestDocument(
     content: string;
     metadata?: Record<string, unknown>;
     chunkStrategy?: ChunkStrategy;
+    /** Inline BYOK embedding key — forwarded to the embed call (D-02/D-04). */
+    embeddingApiKey?: string;
   },
 ): Promise<RagDocument> {
   const bucket = await getBucket(bucketId, tenantId);
@@ -364,6 +389,7 @@ export async function ingestDocument(
     source: input.source?.trim() ?? "",
     metadata: { ...(input.metadata ?? {}), sourceType: "text", chunkStrategy: strategy },
     chunks,
+    embeddingApiKey: input.embeddingApiKey,
   });
 }
 
@@ -383,6 +409,8 @@ export async function ingestFile(
     source?: string;
     metadata?: Record<string, unknown>;
     chunkStrategy?: ChunkStrategy;
+    /** Inline BYOK embedding key — forwarded to the embed call (D-02/D-04). */
+    embeddingApiKey?: string;
   },
 ): Promise<RagDocument> {
   const bucket = await getBucket(bucketId, tenantId);
@@ -441,5 +469,6 @@ export async function ingestFile(
     },
     chunks,
     images,
+    embeddingApiKey: input.embeddingApiKey,
   });
 }

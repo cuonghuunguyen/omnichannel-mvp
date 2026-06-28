@@ -80,6 +80,7 @@ knowledgeRouter.post("/buckets", async (req, res) => {
     res.status(400).json({ error: "name is required" });
     return;
   }
+  const embeddingApiKey = res.locals.embeddingApiKey as string | undefined;
   try {
     const bucket = await createBucket({
       tenantId,
@@ -87,6 +88,7 @@ knowledgeRouter.post("/buckets", async (req, res) => {
       description: input.description,
       provider: input.provider,
       model: input.model,
+      embeddingApiKey,
     });
     res.status(201).json({ bucket });
   } catch (err) {
@@ -152,6 +154,7 @@ knowledgeRouter.post("/buckets/:id/documents", async (req, res) => {
     res.status(400).json({ error: "content is required" });
     return;
   }
+  const embeddingApiKey = res.locals.embeddingApiKey as string | undefined;
   try {
     const document = await ingestDocument(req.params.id, tenantId, {
       title: input.title,
@@ -159,6 +162,7 @@ knowledgeRouter.post("/buckets/:id/documents", async (req, res) => {
       content: input.content,
       metadata: input.metadata,
       chunkStrategy: input.chunkStrategy,
+      embeddingApiKey,
     });
     res.status(201).json({ document });
   } catch (err) {
@@ -188,6 +192,7 @@ knowledgeRouter.post("/buckets/:id/files", uploadSingle("file"), async (req, res
     res.status(400).json({ error: "invalid fields" });
     return;
   }
+  const embeddingApiKey = res.locals.embeddingApiKey as string | undefined;
   try {
     const document = await ingestFile(String(req.params.id), tenantId, {
       buffer: file.buffer,
@@ -196,6 +201,7 @@ knowledgeRouter.post("/buckets/:id/files", uploadSingle("file"), async (req, res
       title: parsed.data.title,
       source: parsed.data.source,
       chunkStrategy: parsed.data.chunkStrategy,
+      embeddingApiKey,
     });
     res.status(201).json({ document });
   } catch (err) {

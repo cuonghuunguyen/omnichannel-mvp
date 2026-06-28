@@ -128,14 +128,17 @@ function localProvider(config: EmbeddingConfig): EmbeddingProvider {
 // ── OpenAI ───────────────────────────────────────────────────────────────────
 function openaiProvider(config: EmbeddingConfig): EmbeddingProvider {
   const model = config.model || PROVIDER_DEFAULTS.openai.model;
-  const apiKey = config.apiKey || process.env.OPENAI_API_KEY;
+  // D-04: use only the inline BYOK key — no silent fallback to the shared env key
+  // for tenant requests. If no inline key is configured, the embed call will throw
+  // a clear error rather than leaking a shared key across tenants (T-37-02-02).
+  const apiKey = config.apiKey;
   return {
     provider: "openai",
     model,
     dimensions: dimensionsFor("openai", model),
     async embed(texts) {
       if (texts.length === 0) return [];
-      if (!apiKey) throw new Error("OPENAI_API_KEY is not set for the OpenAI embedding provider.");
+      if (!apiKey) throw new Error("Configure an OpenAI embedding key for this workspace.");
       const res = await fetch("https://api.openai.com/v1/embeddings", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
@@ -152,14 +155,16 @@ function openaiProvider(config: EmbeddingConfig): EmbeddingProvider {
 // ── Voyage AI ──────────────────────────────────────────────────────────────--
 function voyageProvider(config: EmbeddingConfig): EmbeddingProvider {
   const model = config.model || PROVIDER_DEFAULTS.voyage.model;
-  const apiKey = config.apiKey || process.env.VOYAGE_API_KEY;
+  // D-04: use only the inline BYOK key — no silent fallback to the shared env key
+  // for tenant requests (T-37-02-02).
+  const apiKey = config.apiKey;
   return {
     provider: "voyage",
     model,
     dimensions: dimensionsFor("voyage", model),
     async embed(texts, kind = "document") {
       if (texts.length === 0) return [];
-      if (!apiKey) throw new Error("VOYAGE_API_KEY is not set for the Voyage embedding provider.");
+      if (!apiKey) throw new Error("Configure a Voyage embedding key for this workspace.");
       const res = await fetch("https://api.voyageai.com/v1/embeddings", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
@@ -180,14 +185,16 @@ function voyageProvider(config: EmbeddingConfig): EmbeddingProvider {
 // and queries, `embedMultimodal` carries images.
 function voyageMultimodalProvider(config: EmbeddingConfig): EmbeddingProvider {
   const model = config.model || PROVIDER_DEFAULTS["voyage-multimodal"].model;
-  const apiKey = config.apiKey || process.env.VOYAGE_API_KEY;
+  // D-04: use only the inline BYOK key — no silent fallback to the shared env key
+  // for tenant requests (T-37-02-02).
+  const apiKey = config.apiKey;
 
   async function call(
     inputs: { content: unknown[] }[],
     kind: EmbeddingKind,
   ): Promise<number[][]> {
     if (inputs.length === 0) return [];
-    if (!apiKey) throw new Error("VOYAGE_API_KEY is not set for the Voyage embedding provider.");
+    if (!apiKey) throw new Error("Configure a Voyage embedding key for this workspace.");
     const res = await fetch("https://api.voyageai.com/v1/multimodalembeddings", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
