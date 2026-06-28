@@ -87,7 +87,8 @@ export async function dispatchEvent(
       headers = { "Content-Type": "application/json", "X-Internal-Secret": target.secret };
     } else {
       url = target.url;
-      body = JSON.stringify({ conversationId, ...event });
+      const eventId = crypto.randomUUID();
+      body = JSON.stringify({ eventId, conversationId, ...event });
       headers = {
         "Content-Type": "application/json",
         "X-Webhook-Event": event.type,
