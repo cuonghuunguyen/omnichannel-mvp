@@ -12,6 +12,7 @@ import { agentBuilderRouter } from "@/routes/agent-builder";
 import { internalRouter } from "@/routes/internal";
 import { openaiRouter } from "@/routes/openai";
 import { buildOpenApiDocument } from "@/openapi/document";
+import { db } from "@/lib/db";
 
 const app = express();
 
@@ -24,8 +25,21 @@ app.use(
 );
 app.use(express.json({ limit: "8mb" }));
 
-app.get("/health", (_req, res) => {
-  res.json({ ok: true });
+app.get("/health", async (_req, res) => {
+  let mysql: "connected" | "error" = "connected";
+  try {
+    await db.$queryRaw`SELECT 1`;
+  } catch {
+    mysql = "error";
+  }
+  res
+    .status(mysql === "connected" ? 200 : 503)
+    .json({
+      ok: mysql === "connected",
+      version: process.env.npm_package_version ?? "0.1.0",
+      mysql,
+      qdrant: "not configured",
+    });
 });
 
 // Live OpenAPI spec + a zero-build Redoc docs page.

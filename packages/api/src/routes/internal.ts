@@ -20,9 +20,15 @@ internalRouter.use((req, res, next) => {
   next();
 });
 
-/** Upsert a tenant into this service's registry (id + display name). */
+/** Upsert a tenant into this service's registry (D-09 full payload). */
 internalRouter.post("/tenants", async (req, res) => {
-  const { id, name } = (req.body ?? {}) as { id?: string; name?: string };
+  const { id, name, apiKeyHash, webhookUrl, webhookSecret } = (req.body ?? {}) as {
+    id?: string;
+    name?: string;
+    apiKeyHash?: string;
+    webhookUrl?: string;
+    webhookSecret?: string;
+  };
   const tenantId = id?.trim();
   const tenantName = name?.trim();
   if (!tenantId || !tenantName) {
@@ -31,8 +37,8 @@ internalRouter.post("/tenants", async (req, res) => {
   }
   const tenant = await db.tenant.upsert({
     where: { id: tenantId },
-    update: { name: tenantName },
-    create: { id: tenantId, name: tenantName },
+    update: { name: tenantName, apiKeyHash, webhookUrl, webhookSecret },
+    create: { id: tenantId, name: tenantName, apiKeyHash, webhookUrl, webhookSecret },
   });
   res.status(201).json({ tenant: { id: tenant.id, name: tenant.name } });
 });

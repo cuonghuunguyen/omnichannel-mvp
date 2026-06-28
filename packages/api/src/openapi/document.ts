@@ -49,6 +49,53 @@ export function buildOpenApiDocument() {
     },
     servers: [{ url: "/", description: "Relative to the API host" }],
     paths: {
+      "/health": {
+        get: {
+          operationId: "getHealth",
+          summary: "Sidecar health check",
+          description:
+            "Returns service health including MySQL connectivity and build version. " +
+            "Responds 200 when MySQL is connected, 503 otherwise. " +
+            "Qdrant status is deferred (Phase 37).",
+          tags: ["health"],
+          responses: {
+            "200": {
+              description: "Service is healthy",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    required: ["ok", "version", "mysql", "qdrant"],
+                    properties: {
+                      ok: { type: "boolean", description: "true when all critical dependencies are connected" },
+                      version: { type: "string", description: "npm package version" },
+                      mysql: { type: "string", enum: ["connected", "error"], description: "MySQL connectivity status" },
+                      qdrant: { type: "string", description: "Qdrant connectivity status (deferred: always 'not configured')" },
+                    },
+                  },
+                },
+              },
+            },
+            "503": {
+              description: "Service is degraded (MySQL unavailable)",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    required: ["ok", "version", "mysql", "qdrant"],
+                    properties: {
+                      ok: { type: "boolean" },
+                      version: { type: "string" },
+                      mysql: { type: "string", enum: ["connected", "error"] },
+                      qdrant: { type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
       "/v1/chat/completions": {
         post: {
           operationId: "createChatCompletion",
