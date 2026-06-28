@@ -53,6 +53,12 @@ export type RetrieveOptions = {
   topK?: number;
   /** Model used for query rewrite + reranking. */
   pipelineModel: string;
+  /**
+   * Inline BYOK embedding key (from X-Embedding-Key header). When present,
+   * merged into each bucket's embedding config so the tenant's key is used
+   * for query embedding (KB-05 / D-04). Never logged or persisted.
+   */
+  embeddingApiKey?: string;
 };
 
 export async function retrieve(opts: RetrieveOptions): Promise<RetrievedChunk[]> {
@@ -66,7 +72,8 @@ export async function retrieve(opts: RetrieveOptions): Promise<RetrievedChunk[]>
 
   // Embed the query once per distinct bucket embedding config. Scoped by tenant:
   // buckets outside the tenant return no config and are skipped below.
-  const configs = await getBucketEmbeddingConfigs(bucketIds, opts.tenantId);
+  // Pass the inline BYOK embedding key so the tenant's own key is used (D-04/KB-05).
+  const configs = await getBucketEmbeddingConfigs(bucketIds, opts.tenantId, opts.embeddingApiKey);
   const embeddingByKey = new Map<string, number[]>();
   const keyOf = (c: EmbeddingConfig) => `${c.provider}:${c.model}`;
   await Promise.all(

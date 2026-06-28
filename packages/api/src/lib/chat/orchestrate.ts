@@ -41,6 +41,12 @@ export type OrchestrateInput = {
    * of the sidecar env key. Never logged or persisted (D-12 / T-35-03).
    */
   providerApiKey?: string;
+  /**
+   * BYOK per-request embedding key delivered via X-Embedding-Key header.
+   * When present, forwarded to retrieve() for in-turn RAG so the tenant's own
+   * key is used to embed the query (KB-05 / D-04). Never logged or persisted.
+   */
+  embeddingApiKey?: string;
 };
 
 /** Fetch a single agent's full config (within a tenant) from the local DB. */
@@ -139,6 +145,7 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
             },
             recordSent: (t) => sent.push(t),
           },
+          input.embeddingApiKey,
         );
 
         let text: string;

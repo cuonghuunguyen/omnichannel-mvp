@@ -250,6 +250,7 @@ knowledgeRouter.post("/search", async (req, res) => {
     res.status(400).json({ error: "bucketIds is required" });
     return;
   }
+  const embeddingApiKey = res.locals.embeddingApiKey as string | undefined;
   try {
     const results = await retrieve({
       tenantId,
@@ -258,6 +259,7 @@ knowledgeRouter.post("/search", async (req, res) => {
       topK: input.topK ?? 5,
       pipelineModel:
         input.model || process.env.RAG_PIPELINE_MODEL?.trim() || DEFAULT_MODEL_ID,
+      embeddingApiKey,
     });
     res.json({ results });
   } catch (err) {
