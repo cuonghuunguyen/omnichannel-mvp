@@ -15,6 +15,7 @@ import { buildOpenApiDocument } from "@/openapi/document";
 import { db } from "@/lib/db";
 import { SHUTDOWN_TIMEOUT_MS } from "@/lib/resilience";
 import { stripProviderKey } from "@/middleware/strip-provider-key";
+import { stripEmbeddingKey } from "@/middleware/strip-embedding-key";
 import { validateEnv } from "@/lib/env";
 import { checkMysql, checkQdrant } from "@/lib/health";
 
@@ -28,6 +29,9 @@ const app = express();
 // Strip X-Provider-Key BEFORE any logger or body-parser so the raw BYOK key
 // is never captured in access logs or request dumps (D-12 / T-35-03).
 app.use(stripProviderKey);
+// Strip X-Embedding-Key BEFORE any logger or body-parser so the raw BYOK
+// embedding key is never captured in access logs or request dumps (D-02 / T-37-02-01).
+app.use(stripEmbeddingKey);
 
 // The chat service's browser admin UI calls this API cross-origin; allow it.
 // WR-02: fail closed. CORS_ORIGIN is an explicit allowlist of origins; when unset we
