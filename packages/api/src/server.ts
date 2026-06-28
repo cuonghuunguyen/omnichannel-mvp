@@ -13,8 +13,13 @@ import { internalRouter } from "@/routes/internal";
 import { openaiRouter } from "@/routes/openai";
 import { buildOpenApiDocument } from "@/openapi/document";
 import { db } from "@/lib/db";
+import { stripProviderKey } from "@/middleware/strip-provider-key";
 
 const app = express();
+
+// Strip X-Provider-Key BEFORE any logger or body-parser so the raw BYOK key
+// is never captured in access logs or request dumps (D-12 / T-35-03).
+app.use(stripProviderKey);
 
 // The chat service's browser admin UI calls this API cross-origin; allow it.
 // CORS_ORIGIN can pin a single origin in production; defaults to reflecting any.

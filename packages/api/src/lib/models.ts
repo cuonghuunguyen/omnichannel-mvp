@@ -1,5 +1,5 @@
-import { anthropic } from "@ai-sdk/anthropic";
-import { deepseek } from "@ai-sdk/deepseek";
+import { anthropic, createAnthropic } from "@ai-sdk/anthropic";
+import { deepseek, createDeepSeek } from "@ai-sdk/deepseek";
 import type { LanguageModel } from "ai";
 
 /**
@@ -7,10 +7,16 @@ import type { LanguageModel } from "ai";
  * by id prefix: "deepseek-*" -> DeepSeek, everything else -> Anthropic.
  * (Duplicated from the chat service by design — the two services don't share a
  * package; this is ~10 lines.)
+ *
+ * When `apiKey` is provided the provider is instantiated with that key (BYOK
+ * per-request key delivered via X-Provider-Key header). When absent the default
+ * env-backed provider instances are used.
  */
-export function resolveModel(modelId: string): LanguageModel {
-  if (modelId.startsWith("deepseek")) return deepseek(modelId);
-  return anthropic(modelId);
+export function resolveModel(modelId: string, apiKey?: string): LanguageModel {
+  if (modelId.startsWith("deepseek")) {
+    return apiKey ? createDeepSeek({ apiKey })(modelId) : deepseek(modelId);
+  }
+  return apiKey ? createAnthropic({ apiKey })(modelId) : anthropic(modelId);
 }
 
 export const DEFAULT_MODEL_ID = "deepseek-chat";

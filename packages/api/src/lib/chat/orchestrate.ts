@@ -34,6 +34,12 @@ export type OrchestrateInput = {
   /** Where conversation events (persistence/routing/escalation) are delivered. */
   webhook: WebhookTarget | null;
   messages: ChatUIMessage[];
+  /**
+   * BYOK per-request provider API key delivered via X-Provider-Key header.
+   * When present, passed to resolveModel() to use the caller's own key instead
+   * of the sidecar env key. Never logged or persisted (D-12 / T-35-03).
+   */
+  providerApiKey?: string;
 };
 
 /** Fetch a single agent's full config (within a tenant) from the local DB. */
@@ -138,7 +144,7 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
         try {
           const agentForMeta = current;
           const result = streamText({
-            model: resolveModel(current.model),
+            model: resolveModel(current.model, input.providerApiKey),
             system,
             temperature: current.temperature,
             messages: modelMessages,

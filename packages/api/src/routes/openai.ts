@@ -108,6 +108,7 @@ openaiRouter.post("/chat/completions", async (req, res) => {
     routingFlag: null,
     webhook,
     messages: uiMessages,
+    providerApiKey: res.locals.providerApiKey as string | undefined,
   });
 
   const id = `chatcmpl-${crypto.randomUUID()}`;
