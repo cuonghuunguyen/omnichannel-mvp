@@ -1,6 +1,7 @@
 import { createMCPClient, type MCPClient } from "@ai-sdk/mcp";
 import type { ToolSet } from "ai";
 import type { McpServerDef } from "@/lib/types";
+import { TIMEOUTS, withTimeout } from "@/lib/resilience";
 
 export type McpConnection = {
   /** Tools discovered across all reachable servers, merged. */
@@ -22,12 +23,19 @@ export async function connectMcpServers(
 
   for (const server of servers) {
     if (!server.url) continue;
+    const label = `MCP ${server.name || server.url}`;
     try {
-      const client = await createMCPClient({
-        transport: { type: "http", url: server.url, headers: server.headers },
-      });
+      // Bound the connect + tool-discovery handshake so an unresponsive server
+      // can't stall turn setup; a timeout falls through to the skip path below.
+      const client = await withTimeout(
+        createMCPClient({
+          transport: { type: "http", url: server.url, headers: server.headers },
+        }),
+        TIMEOUTS.mcpMs,
+        label,
+      );
       clients.push(client);
-      tools = { ...tools, ...(await client.tools()) };
+      tools = { ...tools, ...(await withTimeout(client.tools(), TIMEOUTS.mcpMs, label)) };
     } catch (err) {
       console.error(
         `MCP connect failed for ${server.name || server.url}:`,

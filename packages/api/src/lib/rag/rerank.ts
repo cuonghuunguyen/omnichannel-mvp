@@ -4,6 +4,7 @@
 // a local cross-encoder later. Fail-soft: on error we keep the fusion order.
 import { generateText } from "ai";
 import { resolveModel } from "@/lib/models";
+import { TIMEOUTS } from "@/lib/resilience";
 import type { RetrievedChunk } from "@/lib/rag/types";
 
 export type Reranker = (
@@ -31,6 +32,7 @@ export function llmReranker(pipelineModel: string): Reranker {
         temperature: 0,
         system,
         prompt: `QUERY:\n${query}\n\nPASSAGES:\n${list}`,
+        timeout: TIMEOUTS.ragLlmMs,
       });
       const match = text.match(/\{[\s\S]*\}/);
       if (!match) return candidates.slice(0, topK);

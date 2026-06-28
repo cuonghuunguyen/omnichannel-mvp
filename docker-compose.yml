@@ -43,6 +43,50 @@ services:
       timeout: 3s
       retries: 15
 
+  # The AI Config API (@agent-routing/api). Built from source; waits for both
+  # backing services to be healthy. Inside the compose network it reaches them by
+  # service name (mysql:3306, qdrant:6333) — NOT the host-published ports.
+  # Note: schema migrations are NOT run here; apply them out-of-band with
+  # `prisma migrate deploy` against the `agents` DB before/after deploy.
+  api:
+    build:
+      context: .
+      dockerfile: packages/api/Dockerfile
+    container_name: agent-routing-api
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      API_PORT: 4000
+      DATABASE_URL: mysql://app:app@mysql:3306/agents
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-local}
+      # Required in production (boot validation rejects the dev default).
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:?set INTERNAL_API_SECRET}
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      CHAT_URL: ${CHAT_URL:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
+    ports:
+      - "4000:4000"
+    healthcheck:
+      test:
+        - "CMD"
+        - "node"
+        - "-e"
+        - "fetch('http://127.0.0.1:4000/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
 volumes:
   qdrant-storage:
   mysql-data:

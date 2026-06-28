@@ -7,6 +7,7 @@ import type { BuiltinToolFlags, CustomToolDef, KnowledgeConfig } from "@/lib/typ
 import type { ChatUIMessage } from "@/lib/agents/ui-messages";
 import { retrieve } from "@/lib/rag/retrieve";
 import { cacheKey, getCachedChunks, setCachedChunks } from "@/lib/rag/retrieve-cache";
+import { TIMEOUTS } from "@/lib/resilience";
 
 /** What a handoff tool tells the orchestration loop to do next. */
 export type HandoffSignal =
@@ -221,6 +222,8 @@ export function buildCustomTools(defs: CustomToolDef[]): ToolSet {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(input),
+            // Bound the call so a hung endpoint can't stall the agent's turn.
+            signal: AbortSignal.timeout(TIMEOUTS.toolFetchMs),
           });
           const text = await res.text();
           try {
@@ -230,10 +233,11 @@ export function buildCustomTools(defs: CustomToolDef[]): ToolSet {
             return { status: res.status, body: text };
           }
         } catch (err) {
+          const timedOut = err instanceof Error && err.name === "TimeoutError";
           return {
-            error: `Tool "${def.name}" request failed: ${
-              err instanceof Error ? err.message : String(err)
-            }`,
+            error: `Tool "${def.name}" request ${
+              timedOut ? `timed out after ${TIMEOUTS.toolFetchMs}ms` : "failed"
+            }: ${err instanceof Error ? err.message : String(err)}`,
           };
         }
       },

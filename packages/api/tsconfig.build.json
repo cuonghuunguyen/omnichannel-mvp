@@ -1,0 +1,7 @@
+{
+  "//": "Production build typecheck gate — validates only the shipping runtime",
+  "//2": "source (src/). Dev-only seed/scripts are excluded; check them via the",
+  "//3": "`typecheck`/`build` scripts which use tsconfig.json.",
+  "extends": "./tsconfig.json",
+  "include": ["src"]
+}

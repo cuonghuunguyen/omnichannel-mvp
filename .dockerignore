@@ -1,0 +1,14 @@
+# Docker build context = this (monorepo root). Keep images lean + reproducible.
+**/node_modules
+**/.env
+**/.env.*
+!**/.env.example
+**/src/generated/prisma
+**/.next
+**/dist
+**/build
+**/coverage
+**/*.tsbuildinfo
+.git
+**/.DS_Store
+.planning

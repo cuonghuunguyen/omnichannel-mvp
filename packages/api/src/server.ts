@@ -13,7 +13,15 @@ import { internalRouter } from "@/routes/internal";
 import { openaiRouter } from "@/routes/openai";
 import { buildOpenApiDocument } from "@/openapi/document";
 import { db } from "@/lib/db";
+import { SHUTDOWN_TIMEOUT_MS } from "@/lib/resilience";
 import { stripProviderKey } from "@/middleware/strip-provider-key";
+import { validateEnv } from "@/lib/env";
+import { checkMysql, checkQdrant } from "@/lib/health";
+
+// Fail fast on a misconfigured environment before binding the port.
+validateEnv();
+
+const VERSION = process.env.npm_package_version ?? "0.1.0";
 
 const app = express();
 
@@ -37,21 +45,32 @@ app.use(
 );
 app.use(express.json({ limit: "8mb" }));
 
+// Liveness: the process is up and serving. No dependency probes — a transient
+// DB/Qdrant blip must NOT make the orchestrator kill an otherwise-healthy pod.
+app.get("/health/live", (_req, res) => {
+  res.json({ ok: true, status: "live", version: VERSION });
+});
+
+// Readiness: can this instance serve real traffic? Probes MySQL + Qdrant.
+app.get("/health/ready", async (_req, res) => {
+  const [mysql, qdrant] = await Promise.all([checkMysql(), checkQdrant()]);
+  // "not configured" Qdrant is tolerated (boot validation requires QDRANT_URL,
+  // so this only guards against an explicit unset); only "error" blocks traffic.
+  const ok = mysql === "ok" && qdrant !== "error";
+  res.status(ok ? 200 : 503).json({ ok, version: VERSION, mysql, qdrant });
+});
+
+// Back-compat combined check: same shape/semantics as before (200/503 keyed on
+// MySQL), but Qdrant is now a real probe rather than a hardcoded string.
 app.get("/health", async (_req, res) => {
-  let mysql: "connected" | "error" = "connected";
-  try {
-    await db.$queryRaw`SELECT 1`;
-  } catch {
-    mysql = "error";
-  }
-  res
-    .status(mysql === "connected" ? 200 : 503)
-    .json({
-      ok: mysql === "connected",
-      version: process.env.npm_package_version ?? "0.1.0",
-      mysql,
-      qdrant: "not configured",
-    });
+  const [mysqlStatus, qdrant] = await Promise.all([checkMysql(), checkQdrant()]);
+  const mysql = mysqlStatus === "ok" ? "connected" : "error";
+  res.status(mysqlStatus === "ok" ? 200 : 503).json({
+    ok: mysqlStatus === "ok",
+    version: VERSION,
+    mysql,
+    qdrant,
+  });
 });
 
 // Live OpenAPI spec + a zero-build Redoc docs page.
@@ -91,8 +110,37 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 const port = Number(process.env.API_PORT ?? process.env.PORT ?? 4000);
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`AI Config API listening on http://localhost:${port}`);
   console.log(`  docs:    http://localhost:${port}/docs`);
   console.log(`  openapi: http://localhost:${port}/openapi.json`);
 });
+
+// Graceful shutdown: on deploy/evict, stop accepting connections, let in-flight
+// turns drain, and release the Prisma/MariaDB pool. A force-exit timer guards
+// against a stuck drain.
+let shuttingDown = false;
+async function shutdown(signal: string): Promise<void> {
+  if (shuttingDown) return; // ignore a second signal mid-drain
+  shuttingDown = true;
+  console.log(`[api] ${signal} received — shutting down`);
+
+  const force = setTimeout(() => {
+    console.error(`[api] drain exceeded ${SHUTDOWN_TIMEOUT_MS}ms — forcing exit`);
+    process.exit(1);
+  }, SHUTDOWN_TIMEOUT_MS);
+  force.unref();
+
+  server.close(async () => {
+    try {
+      await db.$disconnect();
+    } catch (err) {
+      console.error("[api] error disconnecting db:", err);
+    }
+    clearTimeout(force);
+    console.log("[api] shutdown complete");
+    process.exit(0);
+  });
+}
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
+process.on("SIGINT", () => void shutdown("SIGINT"));

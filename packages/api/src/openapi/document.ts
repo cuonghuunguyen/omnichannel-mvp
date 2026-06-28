@@ -55,8 +55,8 @@ export function buildOpenApiDocument() {
           summary: "Sidecar health check",
           description:
             "Returns service health including MySQL connectivity and build version. " +
-            "Responds 200 when MySQL is connected, 503 otherwise. " +
-            "Qdrant status is deferred (Phase 37).",
+            "Responds 200 when MySQL is connected, 503 otherwise. Qdrant is probed " +
+            "(via its /readyz endpoint) and reported informationally.",
           tags: ["health"],
           responses: {
             "200": {
@@ -70,7 +70,7 @@ export function buildOpenApiDocument() {
                       ok: { type: "boolean", description: "true when all critical dependencies are connected" },
                       version: { type: "string", description: "npm package version" },
                       mysql: { type: "string", enum: ["connected", "error"], description: "MySQL connectivity status" },
-                      qdrant: { type: "string", description: "Qdrant connectivity status (deferred: always 'not configured')" },
+                      qdrant: { type: "string", enum: ["ok", "error", "not configured"], description: "Qdrant connectivity status" },
                     },
                   },
                 },
@@ -87,7 +87,83 @@ export function buildOpenApiDocument() {
                       ok: { type: "boolean" },
                       version: { type: "string" },
                       mysql: { type: "string", enum: ["connected", "error"] },
-                      qdrant: { type: "string" },
+                      qdrant: { type: "string", enum: ["ok", "error", "not configured"] },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/health/live": {
+        get: {
+          operationId: "getLiveness",
+          summary: "Liveness probe",
+          description:
+            "Returns 200 whenever the process is up and serving. No dependency " +
+            "probes — intended for the container runtime's restart decision so a " +
+            "transient MySQL/Qdrant blip does not kill a healthy instance.",
+          tags: ["health"],
+          responses: {
+            "200": {
+              description: "Process is live",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    required: ["ok", "status", "version"],
+                    properties: {
+                      ok: { type: "boolean" },
+                      status: { type: "string", enum: ["live"] },
+                      version: { type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      "/health/ready": {
+        get: {
+          operationId: "getReadiness",
+          summary: "Readiness probe",
+          description:
+            "Probes MySQL and Qdrant. Responds 200 when the instance can serve " +
+            "traffic, 503 when a critical dependency is unreachable. Intended for " +
+            "load-balancer/orchestrator readiness gating.",
+          tags: ["health"],
+          responses: {
+            "200": {
+              description: "Service is ready to serve traffic",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    required: ["ok", "version", "mysql", "qdrant"],
+                    properties: {
+                      ok: { type: "boolean" },
+                      version: { type: "string" },
+                      mysql: { type: "string", enum: ["ok", "error"] },
+                      qdrant: { type: "string", enum: ["ok", "error", "not configured"] },
+                    },
+                  },
+                },
+              },
+            },
+            "503": {
+              description: "Service is not ready (a critical dependency is unreachable)",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    required: ["ok", "version", "mysql", "qdrant"],
+                    properties: {
+                      ok: { type: "boolean" },
+                      version: { type: "string" },
+                      mysql: { type: "string", enum: ["ok", "error"] },
+                      qdrant: { type: "string", enum: ["ok", "error", "not configured"] },
                     },
                   },
                 },

@@ -25,6 +25,12 @@ Legend: ✅ done · 🚧 in progress · ⬜ todo
 | M10 | [Move AI engine to API + full multi-tenancy](m10-api-engine-multitenancy.md) | ✅ |
 | M11 | [Tenant switcher (remove `TENANT_ID`, sign up / sign in by tenant)](m11-tenant-switcher.md) | ✅ |
 | M12 | [Migrate RAG vector store from pgvector to Qdrant](m12-pgvector-to-qdrant.md) | ✅ |
+| M13 | [API auth & abuse protection](m13-api-auth-abuse.md) | ⬜ |
+| M14 | [API resilience (timeouts, shutdown, pool, atomic ingestion)](m14-api-resilience.md) | ✅ |
+| M15 | [API production runtime & deployment](m15-api-runtime-deploy.md) | ⬜ |
+| M16 | [API observability](m16-api-observability.md) | ⬜ |
+| M17 | [API resource limits & memory](m17-api-resource-limits.md) | ⬜ |
+| M18 | [API test suite](m18-api-tests.md) | ⬜ |
 
 ---
 

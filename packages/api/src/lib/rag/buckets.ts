@@ -309,7 +309,22 @@ async function storeDocument(args: {
       point(chunks.length + j, embedding, images[j].text || "[image]", { modality: "image" }),
     ),
   ];
-  await qdrantClient().upsert(collectionName(tenantId, bucketId), { wait: true, points });
+  // MySQL + Qdrant can't share a transaction, so compensate: if the vector
+  // upsert fails (incl. timeout), roll back the registry row and best-effort
+  // clear any partially-written points. Net result matches a never-ingested doc,
+  // preserving "registry row exists ⟺ its Qdrant points exist".
+  try {
+    await qdrantClient().upsert(collectionName(tenantId, bucketId), { wait: true, points });
+  } catch (err) {
+    await db.document.delete({ where: { id: docId } }).catch(() => {});
+    await qdrantClient()
+      .delete(collectionName(tenantId, bucketId), {
+        wait: true,
+        filter: { must: [{ key: "document_id", match: { value: docId } }] },
+      })
+      .catch(() => {});
+    throw err;
+  }
 
   return {
     id: docId,

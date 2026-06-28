@@ -17,7 +17,8 @@ export function mariaConfig() {
     user: decodeURIComponent(url.username),
     password: decodeURIComponent(url.password),
     database: url.pathname.replace(/^\//, ""),
-    connectionLimit: 5,
+    // Pool size: tunable for prod concurrency via DB_CONNECTION_LIMIT (default 10).
+    connectionLimit: Number(process.env.DB_CONNECTION_LIMIT ?? 10),
     // MySQL 8 defaults to caching_sha2_password; over a non-TLS dev connection
     // the driver must fetch the server's RSA public key to finish the handshake.
     allowPublicKeyRetrieval: true,

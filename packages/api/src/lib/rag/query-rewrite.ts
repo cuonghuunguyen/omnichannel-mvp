@@ -5,6 +5,7 @@
 // we fall back to the raw query so retrieval still runs.
 import { generateText } from "ai";
 import { resolveModel } from "@/lib/models";
+import { TIMEOUTS } from "@/lib/resilience";
 
 export type RewrittenQuery = {
   /** Standalone search query used for embedding + full-text search. */
@@ -35,6 +36,7 @@ export async function rewriteQuery(
       prompt:
         (context ? `CONVERSATION (most recent last):\n${context}\n\n` : "") +
         `LATEST USER MESSAGE:\n${latestUserText}\n\nRewrite it into a search query.`,
+      timeout: TIMEOUTS.ragLlmMs,
     });
     const match = text.match(/\{[\s\S]*\}/);
     if (!match) return fallback;

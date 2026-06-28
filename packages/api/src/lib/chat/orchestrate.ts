@@ -12,6 +12,7 @@ import {
   type UIMessageChunk,
 } from "ai";
 import { resolveModel, MAX_STEPS_PER_AGENT, MAX_HOPS } from "@/lib/models";
+import { TIMEOUTS } from "@/lib/resilience";
 import { db } from "@/lib/db";
 import { toAgentDTO, type AgentDTO } from "@/lib/agent-io";
 import { textFromParts, recentTranscript } from "@/lib/agents/messages";
@@ -149,6 +150,9 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
             temperature: current.temperature,
             messages: modelMessages,
             tools,
+            // Bound the whole turn (incl. tool/MCP steps) so a hung provider or
+            // tool can't pin the orchestration loop and its DB connection.
+            timeout: TIMEOUTS.llmMs,
             // Stop the turn on the agent's own budget, or as soon as it hands off.
             stopWhen: [
               stepCountIs(MAX_STEPS_PER_AGENT),

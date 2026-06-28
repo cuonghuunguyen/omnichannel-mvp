@@ -18,6 +18,7 @@
 // The buckets/documents REGISTRY (CRUD, listing, counts) lives in the app's
 // Prisma DB, not here — Qdrant only stores chunk vectors+payload.
 import { QdrantClient } from "@qdrant/js-client-rest";
+import { TIMEOUTS } from "@/lib/resilience";
 
 /** Named dense vector used for semantic search. */
 export const DENSE = "dense";
@@ -40,6 +41,9 @@ export function qdrantClient(): QdrantClient {
       // The REST client defaults to checking server compatibility on first call;
       // skip it so a version skew doesn't hard-fail the store.
       checkCompatibility: false,
+      // Bound every query/upsert/delete/createCollection (seconds) so a hung
+      // Qdrant can't stall ingestion or retrieval. Default 300s is too long.
+      timeout: TIMEOUTS.qdrantSec,
     });
   }
   return globalForRag.qdrant;

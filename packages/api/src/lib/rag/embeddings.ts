@@ -3,6 +3,7 @@
 // so vectors are always comparable. Keys come from the config (BYOK) and fall
 // back to env, so this is ready for per-tenant keys later.
 import type { EmbeddingProviderId } from "@/lib/rag/types";
+import { TIMEOUTS } from "@/lib/resilience";
 
 export type EmbeddingKind = "query" | "document";
 
@@ -139,6 +140,7 @@ function openaiProvider(config: EmbeddingConfig): EmbeddingProvider {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({ model, input: texts }),
+        signal: AbortSignal.timeout(TIMEOUTS.embeddingMs),
       });
       if (!res.ok) throw new Error(`OpenAI embeddings failed (${res.status}): ${await res.text()}`);
       const json = (await res.json()) as { data: { index: number; embedding: number[] }[] };
@@ -162,6 +164,7 @@ function voyageProvider(config: EmbeddingConfig): EmbeddingProvider {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({ model, input: texts, input_type: kind }),
+        signal: AbortSignal.timeout(TIMEOUTS.embeddingMs),
       });
       if (!res.ok) throw new Error(`Voyage embeddings failed (${res.status}): ${await res.text()}`);
       const json = (await res.json()) as { data: { index: number; embedding: number[] }[] };
@@ -189,6 +192,7 @@ function voyageMultimodalProvider(config: EmbeddingConfig): EmbeddingProvider {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({ model, inputs, input_type: kind }),
+      signal: AbortSignal.timeout(TIMEOUTS.embeddingMs),
     });
     if (!res.ok) {
       throw new Error(`Voyage multimodal embeddings failed (${res.status}): ${await res.text()}`);
