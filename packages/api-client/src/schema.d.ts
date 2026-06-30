@@ -4,6 +4,66 @@
  */
 
 export interface paths {
+    "/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Sidecar health check
+         * @description Returns service health including MySQL connectivity and build version. Responds 200 when MySQL is connected, 503 otherwise. Qdrant is probed (via its /readyz endpoint) and reported informationally.
+         */
+        get: operations["getHealth"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health/live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Liveness probe
+         * @description Returns 200 whenever the process is up and serving. No dependency probes — intended for the container runtime's restart decision so a transient MySQL/Qdrant blip does not kill a healthy instance.
+         */
+        get: operations["getLiveness"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/health/ready": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Readiness probe
+         * @description Probes MySQL and Qdrant. Responds 200 when the instance can serve traffic, 503 when a critical dependency is unreachable. Intended for load-balancer/orchestrator readiness gating.
+         */
+        get: operations["getReadiness"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/chat/completions": {
         parameters: {
             query?: never;
@@ -166,6 +226,26 @@ export interface paths {
         put?: never;
         /** Ingest a document (chunk → embed → store) */
         post: operations["ingestDocument"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/knowledge/buckets/{id}/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ingest an uploaded file (extract → chunk → embed → store)
+         * @description Upload a file (PDF, DOCX, PPTX, XLSX, HTML, Markdown, CSV, text, image) as multipart/form-data. The file is converted to text, chunked with an auto-detected strategy, embedded with the bucket's provider, and stored.
+         */
+        post: operations["ingestFile"];
         delete?: never;
         options?: never;
         head?: never;
@@ -346,13 +426,13 @@ export interface components {
             };
         };
         /** @enum {string} */
-        EmbeddingProviderId: "local" | "openai" | "voyage";
+        EmbeddingProviderId: "local" | "openai" | "voyage" | "voyage-multimodal";
         Bucket: {
             id: string;
             name: string;
             description: string;
             /** @enum {string} */
-            embeddingProvider: "local" | "openai" | "voyage";
+            embeddingProvider: "local" | "openai" | "voyage" | "voyage-multimodal";
             embeddingModel: string;
             embeddingDim: number;
             createdAt: string;
@@ -386,9 +466,11 @@ export interface components {
             name: string;
             description?: string;
             /** @enum {string} */
-            provider?: "local" | "openai" | "voyage";
+            provider?: "local" | "openai" | "voyage" | "voyage-multimodal" | "auto";
             model?: string;
         };
+        /** @enum {string} */
+        ChunkStrategy: "auto" | "markdown" | "recursive" | "paragraph" | "sentence";
         IngestDocumentInput: {
             title: string;
             source?: string;
@@ -396,6 +478,14 @@ export interface components {
             metadata?: {
                 [key: string]: unknown;
             };
+            /** @enum {string} */
+            chunkStrategy?: "auto" | "markdown" | "recursive" | "paragraph" | "sentence";
+        };
+        IngestFileInput: {
+            title?: string;
+            source?: string;
+            /** @enum {string} */
+            chunkStrategy?: "auto" | "markdown" | "recursive" | "paragraph" | "sentence";
         };
         SearchInput: {
             bucketIds: string[];
@@ -414,7 +504,7 @@ export interface components {
             };
         };
         ChatTurnInput: {
-            tenantId?: string;
+            tenantId: string;
             conversationId: string;
             agentId: string;
             routingFlag?: string | null;
@@ -605,7 +695,7 @@ export interface components {
                 name: string;
                 description: string;
                 /** @enum {string} */
-                embeddingProvider: "local" | "openai" | "voyage";
+                embeddingProvider: "local" | "openai" | "voyage" | "voyage-multimodal";
                 embeddingModel: string;
                 embeddingDim: number;
                 createdAt: string;
@@ -619,7 +709,7 @@ export interface components {
                 name: string;
                 description: string;
                 /** @enum {string} */
-                embeddingProvider: "local" | "openai" | "voyage";
+                embeddingProvider: "local" | "openai" | "voyage" | "voyage-multimodal";
                 embeddingModel: string;
                 embeddingDim: number;
                 createdAt: string;
@@ -633,7 +723,7 @@ export interface components {
                 name: string;
                 description: string;
                 /** @enum {string} */
-                embeddingProvider: "local" | "openai" | "voyage";
+                embeddingProvider: "local" | "openai" | "voyage" | "voyage-multimodal";
                 embeddingModel: string;
                 embeddingDim: number;
                 createdAt: string;
@@ -701,6 +791,125 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    getHealth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Service is healthy */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** @description true when all critical dependencies are connected */
+                        ok: boolean;
+                        /** @description npm package version */
+                        version: string;
+                        /**
+                         * @description MySQL connectivity status
+                         * @enum {string}
+                         */
+                        mysql: "connected" | "error";
+                        /**
+                         * @description Qdrant connectivity status
+                         * @enum {string}
+                         */
+                        qdrant: "ok" | "error" | "not configured";
+                    };
+                };
+            };
+            /** @description Service is degraded (MySQL unavailable) */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ok: boolean;
+                        version: string;
+                        /** @enum {string} */
+                        mysql: "connected" | "error";
+                        /** @enum {string} */
+                        qdrant: "ok" | "error" | "not configured";
+                    };
+                };
+            };
+        };
+    };
+    getLiveness: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Process is live */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ok: boolean;
+                        /** @enum {string} */
+                        status: "live";
+                        version: string;
+                    };
+                };
+            };
+        };
+    };
+    getReadiness: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Service is ready to serve traffic */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ok: boolean;
+                        version: string;
+                        /** @enum {string} */
+                        mysql: "ok" | "error";
+                        /** @enum {string} */
+                        qdrant: "ok" | "error" | "not configured";
+                    };
+                };
+            };
+            /** @description Service is not ready (a critical dependency is unreachable) */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ok: boolean;
+                        version: string;
+                        /** @enum {string} */
+                        mysql: "ok" | "error";
+                        /** @enum {string} */
+                        qdrant: "ok" | "error" | "not configured";
+                    };
+                };
+            };
+        };
+    };
     createChatCompletion: {
         parameters: {
             query?: never;
@@ -1241,6 +1450,83 @@ export interface operations {
             };
             /** @description Bucket not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description RAG store unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    ingestFile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                    title?: string;
+                    source?: string;
+                    chunkStrategy?: components["schemas"]["ChunkStrategy"];
+                };
+            };
+        };
+        responses: {
+            /** @description Ingested document */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentResponse"];
+                };
+            };
+            /** @description Missing/invalid file or fields */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Bucket not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description File too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description No extractable text in file */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -1,23 +1,16 @@
 packages:
   - "packages/*"
 
+# pnpm 11 replaced onlyBuiltDependencies/ignoredBuiltDependencies with a single
+# allowBuilds map (package -> true/false). true = run the package's build/postinstall
+# script, false = skip it.
 allowBuilds:
-  '@prisma/engines': set this to true or false
-  better-sqlite3: set this to true or false
-  esbuild: set this to true or false
-  onnxruntime-node: set this to true or false
-  prisma: set this to true or false
-  protobufjs: set this to true or false
-  sharp: set this to true or false
-  tesseract.js: set this to true or false
-  unrs-resolver: set this to true or false
-
-ignoredBuiltDependencies:
-  - sharp
-  - unrs-resolver
-onlyBuiltDependencies:
-  - "@prisma/engines"
-  - prisma
-  - esbuild
-  - onnxruntime-node
-  - protobufjs
+  '@prisma/engines': true     # Prisma query engine
+  prisma: true                # Prisma CLI
+  esbuild: true               # bundler used by tsx
+  onnxruntime-node: true      # local embeddings (@huggingface/transformers)
+  protobufjs: true
+  better-sqlite3: false       # transitive Prisma CLI dep; app uses @prisma/adapter-mariadb
+  sharp: false                # markitdown image path — not built
+  tesseract.js: false         # markitdown OCR path — not built
+  unrs-resolver: false

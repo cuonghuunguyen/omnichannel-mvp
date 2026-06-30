@@ -60,6 +60,9 @@ async function main() {
         deliverToAgent: true,
         deliverToHuman: true,
       }),
+      customTools: "[]",
+      mcpServers: "[]",
+      knowledge: "{}",
       handoffRules: JSON.stringify([
         { when: { keywords: ["refund", "dispute", "chargeback", "billing"] }, assignTo: HUMAN_ID },
         { when: {}, assignTo: "queue" },
@@ -96,6 +99,9 @@ async function main() {
         "end_conversation to close it.",
       isRoutable: true,
       builtinTools: JSON.stringify({ sendMessage: true, deliverToAgent: true, deliverToHuman: true, endConversation: true }),
+      customTools: "[]",
+      mcpServers: "[]",
+      knowledge: "{}",
       handoffRules: JSON.stringify([{ when: {}, assignTo: "queue" }]),
       guardrails: JSON.stringify({
         enabled: true,
@@ -127,6 +133,9 @@ async function main() {
         "the issue is resolved and the guest confirms they're all set, give a short farewell and use end_conversation to close it.",
       isRoutable: true,
       builtinTools: JSON.stringify({ sendMessage: true, deliverToAgent: true, deliverToHuman: true, endConversation: true }),
+      customTools: "[]",
+      mcpServers: "[]",
+      knowledge: "{}",
       handoffRules: JSON.stringify([{ when: {}, assignTo: HUMAN_ID }]),
       guardrails: JSON.stringify({
         enabled: true,
