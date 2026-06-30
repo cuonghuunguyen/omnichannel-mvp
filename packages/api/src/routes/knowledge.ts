@@ -12,6 +12,8 @@ import {
 } from "@/lib/rag/buckets";
 import { retrieve } from "@/lib/rag/retrieve";
 import { ragError } from "@/lib/rag/errors";
+import { getEmbeddingProvider, PROVIDER_DEFAULTS } from "@/lib/rag/embeddings";
+import type { EmbeddingProviderId } from "@/lib/rag/types";
 import { DEFAULT_MODEL_ID } from "@/lib/models";
 import { tenantFromHeader } from "@/lib/tenant";
 import {
@@ -264,5 +266,46 @@ knowledgeRouter.post("/search", async (req, res) => {
     res.json({ results });
   } catch (err) {
     res.status(503).json({ error: ragError(err) });
+  }
+});
+
+/**
+ * Validate a BYOK embedding key without persisting anything (IN-04).
+ *
+ * POST /knowledge/test-key   body: { provider }   header: X-Embedding-Key
+ *
+ * Runs one tiny embedding call against the named provider using the inline key, so
+ * the AI Config "Test" button can verify an embedding key before it is relied on.
+ * Returns 200 {ok:true} when the provider accepts the key, 400 for a missing key or
+ * a provider that needs no key, and 502 {ok:false} when the provider rejects the key
+ * or is unreachable. Nothing is stored; the key lives only for the request
+ * (stripEmbeddingKey middleware) and is never logged (D-02 / T-37-02-01).
+ */
+knowledgeRouter.post("/test-key", async (req, res) => {
+  const provider = String(req.body?.provider ?? "") as EmbeddingProviderId;
+
+  // 'local' needs no key, and unknown providers cannot be tested.
+  if (!(provider in PROVIDER_DEFAULTS) || provider === "local") {
+    res.status(400).json({ ok: false, error: "unsupported provider for key test" });
+    return;
+  }
+
+  const embeddingApiKey = res.locals.embeddingApiKey as string | undefined;
+  if (!embeddingApiKey) {
+    res.status(400).json({ ok: false, error: "X-Embedding-Key header is required" });
+    return;
+  }
+
+  try {
+    const impl = getEmbeddingProvider({
+      provider,
+      model: PROVIDER_DEFAULTS[provider].model,
+      apiKey: embeddingApiKey,
+    });
+    // One minimal embedding round-trip exercises the key against the provider.
+    await impl.embed(["ping"], "document");
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(502).json({ ok: false, error: ragError(err) });
   }
 });

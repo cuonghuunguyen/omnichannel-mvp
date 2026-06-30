@@ -1167,6 +1167,72 @@
           }
         }
       }
+    },
+    "/knowledge/test-key": {
+      "post": {
+        "operationId": "testEmbeddingKey",
+        "summary": "Validate a BYOK embedding key for a provider (no data stored)",
+        "description": "Runs one minimal embedding round-trip with the inline X-Embedding-Key header against the named provider. Nothing is persisted and the key is never logged. Used by the AI Config 'Test' button.",
+        "tags": [
+          "knowledge"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "provider"
+                ],
+                "properties": {
+                  "provider": {
+                    "type": "string",
+                    "enum": [
+                      "openai",
+                      "voyage",
+                      "voyage-multimodal"
+                    ],
+                    "description": "Embedding provider to validate the key against."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Key accepted by the provider",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing key or unsupported provider",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Provider rejected the key or was unreachable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {

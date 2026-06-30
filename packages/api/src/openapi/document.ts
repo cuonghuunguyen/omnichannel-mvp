@@ -477,6 +477,40 @@ export function buildOpenApiDocument() {
           },
         },
       },
+      "/knowledge/test-key": {
+        post: {
+          operationId: "testEmbeddingKey",
+          summary: "Validate a BYOK embedding key for a provider (no data stored)",
+          description:
+            "Runs one minimal embedding round-trip with the inline X-Embedding-Key " +
+            "header against the named provider. Nothing is persisted and the key is " +
+            "never logged. Used by the AI Config 'Test' button.",
+          tags: ["knowledge"],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["provider"],
+                  properties: {
+                    provider: {
+                      type: "string",
+                      enum: ["openai", "voyage", "voyage-multimodal"],
+                      description: "Embedding provider to validate the key against.",
+                    },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            "200": resp("Key accepted by the provider", "OkResponse"),
+            "400": resp("Missing key or unsupported provider", "ErrorResponse"),
+            "502": resp("Provider rejected the key or was unreachable", "ErrorResponse"),
+          },
+        },
+      },
     },
     components: {
       schemas,
