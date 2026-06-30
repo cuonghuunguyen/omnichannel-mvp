@@ -1102,6 +1102,21 @@
         }
       }
     },
+    "/catalog": {
+      "get": {
+        "operationId": "getCatalog",
+        "summary": "Get the catalog of supported providers and models",
+        "description": "Returns the static provider and model catalog for this sidecar. Includes all supported chat providers (Anthropic, DeepSeek) and embedding providers (OpenAI, Voyage, Local). No authentication required — the catalog contains provider/model metadata only, no secrets or tenant data.",
+        "tags": [
+          "catalog"
+        ],
+        "responses": {
+          "200": {
+            "description": "Provider and model catalog"
+          }
+        }
+      }
+    },
     "/knowledge/search": {
       "post": {
         "operationId": "searchKnowledge",
