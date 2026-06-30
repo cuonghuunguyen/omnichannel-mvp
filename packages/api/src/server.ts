@@ -11,6 +11,7 @@ import { chatRouter } from "@/routes/chat";
 import { agentBuilderRouter } from "@/routes/agent-builder";
 import { internalRouter } from "@/routes/internal";
 import { openaiRouter } from "@/routes/openai";
+import { catalogRouter } from "@/routes/catalog";
 import { buildOpenApiDocument } from "@/openapi/document";
 import { db } from "@/lib/db";
 import { SHUTDOWN_TIMEOUT_MS } from "@/lib/resilience";
@@ -106,6 +107,8 @@ app.use("/internal", internalRouter);
 // OpenAI-compatible facade (Bearer key → tenant). Lets any OpenAI-protocol
 // client integrate without the AI-SDK/UIMessage + callback contract.
 app.use("/v1", openaiRouter);
+// Provider and model catalog — static metadata, no auth required.
+app.use("/catalog", catalogRouter);
 
 // Last-resort error handler (Express 5 forwards async rejections here).
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
