@@ -23,7 +23,14 @@ export type ConversationEvent =
     }
   | { type: "set_agent"; agentId: string; agentName: string }
   | { type: "escalate"; humanAgentId: string | null; reason?: string }
-  | { type: "close"; reason?: string };
+  | { type: "close"; reason?: string }
+  | {
+      type: "guardrail";
+      blocked: boolean;
+      category: string;
+      reason: string;
+      offerHuman: boolean;
+    };
 
 /** Where (and how) a tenant's events are delivered. */
 export type WebhookTarget =

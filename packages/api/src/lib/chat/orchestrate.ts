@@ -22,7 +22,7 @@ import { runInputGuard, DEFAULT_REFUSAL } from "@/lib/agents/guard";
 import { withUniqueBlockIds } from "@/lib/agents/stream-ids";
 import { evaluateHandoffRules } from "@/lib/agents/handoff";
 import { conversationCallbacks } from "@/lib/chat/callbacks";
-import type { WebhookTarget } from "@/lib/webhooks/dispatch";
+import { dispatchEvent, type WebhookTarget } from "@/lib/webhooks/dispatch";
 import type { ChatUIMessage } from "@/lib/agents/ui-messages";
 
 export type OrchestrateInput = {
@@ -113,6 +113,17 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
           text: refusalText,
           authorAgentId: entryAgent.id,
           authorAgentName: entryAgent.name,
+        });
+        // Dispatch the guardrail webhook event so the inbox receives a notification
+        // message for the blocked turn. The stream-only data-guardrail write above
+        // feeds the reference chat UI; this webhook event feeds the Laravel inbox.
+        // Best-effort (single attempt, no retry) — same policy as set_agent/escalate/close.
+        await dispatchEvent(input.webhook, conversationId, {
+          type: "guardrail",
+          blocked: true,
+          category: verdict.category,
+          reason: verdict.reason,
+          offerHuman: true,
         });
         return;
       }
