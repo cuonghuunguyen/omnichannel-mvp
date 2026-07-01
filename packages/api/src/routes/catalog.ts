@@ -16,6 +16,9 @@ catalogRouter.get("/", (_req, res) => {
         models: [
           { id: "claude-3-5-sonnet-20241022", displayName: "Claude 3.5 Sonnet" },
           { id: "claude-3-5-haiku-20241022", displayName: "Claude 3.5 Haiku" },
+          { id: "claude-opus-4-5-20251101", displayName: "Claude Opus 4.5" },
+          { id: "claude-sonnet-4-5-20250929", displayName: "Claude Sonnet 4.5" },
+          { id: "claude-haiku-4-5-20251001", displayName: "Claude Haiku 4.5" },
         ],
       },
       {
@@ -25,6 +28,8 @@ catalogRouter.get("/", (_req, res) => {
         models: [
           { id: "deepseek-chat", displayName: "DeepSeek Chat" },
           { id: "deepseek-reasoner", displayName: "DeepSeek Reasoner" },
+          { id: "deepseek-v3", displayName: "DeepSeek V3" },
+          { id: "deepseek-r1", displayName: "DeepSeek R1" },
         ],
       },
       {
