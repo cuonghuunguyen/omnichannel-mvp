@@ -76,6 +76,8 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
       // not refused — it passes through and the loop below hands it off. Only
       // requests outside every agent (or injection) short-circuit with a refusal.
       const { guardrails } = entryAgent;
+      // Load the tenant to resolve the per-workspace guardrail model override (D-06).
+      const tenant = await db.tenant.findFirst({ where: { id: tenantId } });
       const entryRoutable = await loadRoutableAgents(entryAgent.id, tenantId);
       const systemScope = entryRoutable
         .map((a) => `- ${a.name}: ${a.description}`)
@@ -86,6 +88,7 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
         guardrails,
         messages,
         systemScope,
+        tenant?.guardModel,
       );
       if (verdict?.blocked) {
         const refusalText = guardrails.refusal?.trim() || DEFAULT_REFUSAL;

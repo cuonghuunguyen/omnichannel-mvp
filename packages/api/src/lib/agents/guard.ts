@@ -19,9 +19,12 @@ export type GuardVerdict = {
   reason: string;
 };
 
-/** The guard model: a dedicated one via env, else the agent's own model. */
-function guardModelId(agentModel: string): string {
-  return process.env.GUARD_MODEL?.trim() || agentModel;
+/**
+ * Resolve the guard model ID.
+ * Priority: per-tenant override → GUARD_MODEL env → agent's own model.
+ */
+function guardModelId(agentModel: string, tenantGuardModel?: string | null): string {
+  return tenantGuardModel?.trim() || process.env.GUARD_MODEL?.trim() || agentModel;
 }
 
 /** Render the last few turns as a compact transcript for the classifier. */
@@ -64,6 +67,7 @@ export async function runInputGuard(
   guardrails: GuardrailsConfig,
   messages: ChatUIMessage[],
   systemScope?: string,
+  tenantGuardModel?: string | null,
 ): Promise<GuardVerdict | null> {
   const scope = guardrails.scope?.trim();
   if (!guardrails.enabled || !scope) return null;
@@ -96,7 +100,7 @@ export async function runInputGuard(
 
   try {
     const { text } = await generateText({
-      model: resolveModel(guardModelId(agentModel)),
+      model: resolveModel(guardModelId(agentModel, tenantGuardModel)),
       temperature: 0,
       system,
       prompt,
