@@ -22,12 +22,13 @@ internalRouter.use((req, res, next) => {
 
 /** Upsert a tenant into this service's registry (D-09 full payload). */
 internalRouter.post("/tenants", async (req, res) => {
-  const { id, name, apiKeyHash, webhookUrl, webhookSecret } = (req.body ?? {}) as {
+  const { id, name, apiKeyHash, webhookUrl, webhookSecret, guardModel } = (req.body ?? {}) as {
     id?: string;
     name?: string;
     apiKeyHash?: string;
     webhookUrl?: string;
     webhookSecret?: string;
+    guardModel?: string;
   };
   const tenantId = id?.trim();
   const tenantName = name?.trim();
@@ -37,8 +38,15 @@ internalRouter.post("/tenants", async (req, res) => {
   }
   const tenant = await db.tenant.upsert({
     where: { id: tenantId },
-    update: { name: tenantName, apiKeyHash, webhookUrl, webhookSecret },
-    create: { id: tenantId, name: tenantName, apiKeyHash, webhookUrl, webhookSecret },
+    update: {
+      name: tenantName,
+      apiKeyHash,
+      webhookUrl,
+      webhookSecret,
+      // Only update guardModel when it was explicitly sent in the request body.
+      ...(guardModel !== undefined && { guardModel }),
+    },
+    create: { id: tenantId, name: tenantName, apiKeyHash, webhookUrl, webhookSecret, guardModel: guardModel ?? null },
   });
   res.status(201).json({ tenant: { id: tenant.id, name: tenant.name } });
 });
