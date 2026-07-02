@@ -20,6 +20,8 @@ export type ConversationEvent =
       text: string;
       authorAgentId: string;
       authorAgentName: string;
+      /** Present only when the hop's knowledge-tool retrieval found results (KB-05). */
+      usedKnowledge?: { resultCount: number; sources: string[] };
     }
   | { type: "set_agent"; agentId: string; agentName: string }
   | { type: "escalate"; humanAgentId: string | null; reason?: string }

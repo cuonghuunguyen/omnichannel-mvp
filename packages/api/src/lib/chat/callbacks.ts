@@ -27,6 +27,8 @@ export function conversationCallbacks(
       text: string;
       authorAgentId: string;
       authorAgentName: string;
+      /** Present only when the hop's knowledge-tool retrieval found results (KB-05). */
+      usedKnowledge?: { resultCount: number; sources: string[] };
     }) => dispatchEvent(target, conversationId, { type: "assistant_message", ...input }),
 
     /** Record an agent handoff so the conversation's owner is updated. */

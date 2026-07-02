@@ -68,6 +68,8 @@ export async function buildAgentRuntime(
 ) {
   const { builtinTools, customTools, mcpServers, guardrails, knowledge } = agent;
   const mcp = await connectMcpServers(mcpServers);
+  // ctx (including its optional recordKnowledge callback) is forwarded as-is into
+  // buildKnowledgeTool below, so a caller's recordKnowledge reaches the knowledge tool.
   // Query rewrite + reranking run on a dedicated model if configured, else the
   // agent's own model.
   const pipelineModel = process.env.RAG_PIPELINE_MODEL?.trim() || agent.model;

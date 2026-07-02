@@ -141,6 +141,7 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
       for (let hop = 0; hop < MAX_HOPS; hop++) {
         let handoff: HandoffSignal | null = null;
         const sent: string[] = [];
+        const knowledgeHits: { resultCount: number; sources: string[] }[] = [];
 
         // Hop 0's current agent is the entry agent, whose roster we already
         // loaded for the guard above; reuse it instead of querying again.
@@ -158,6 +159,7 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
               handoff = s;
             },
             recordSent: (t) => sent.push(t),
+            recordKnowledge: (info) => knowledgeHits.push(info),
           },
           input.embeddingApiKey,
         );
@@ -212,10 +214,29 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
         // Persist this hop, attributed to the agent that produced it.
         const fullText = [...sent, text].filter(Boolean).join("\n\n");
         if (fullText) {
+          // Compact usedKnowledge summary for the hop: sum result counts across
+          // every search_knowledge call this hop made, dedupe + cap source titles
+          // at 5. Attach only when knowledge was actually found (resultCount > 0)
+          // so a turn that searched-and-found-nothing shows no badge.
+          const knowledgeResultCount = knowledgeHits.reduce(
+            (sum, hit) => sum + hit.resultCount,
+            0,
+          );
+          const usedKnowledge =
+            knowledgeResultCount > 0
+              ? {
+                  resultCount: knowledgeResultCount,
+                  sources: [...new Set(knowledgeHits.flatMap((hit) => hit.sources))].slice(
+                    0,
+                    5,
+                  ),
+                }
+              : undefined;
           await cb.appendAssistantMessage({
             text: fullText,
             authorAgentId: current.id,
             authorAgentName: current.name,
+            ...(usedKnowledge ? { usedKnowledge } : {}),
           });
         }
 

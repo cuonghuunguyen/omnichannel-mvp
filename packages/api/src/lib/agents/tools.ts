@@ -25,6 +25,8 @@ export type ToolContext = {
   signalHandoff: (signal: HandoffSignal) => void;
   /** Records text spoken via `send_message` so it can be persisted. */
   recordSent: (text: string) => void;
+  /** Records a knowledge-tool retrieval outcome so it can be surfaced on the reply. */
+  recordKnowledge?: (info: { resultCount: number; sources: string[] }) => void;
 };
 
 /**
@@ -172,14 +174,18 @@ export function buildKnowledgeTool(
           });
           setCachedChunks(key, chunks);
         }
+        const sources = [...new Set(chunks.map((c) => c.documentTitle).filter(Boolean))];
         ctx.writer.write({
           type: "data-knowledge",
           data: {
             query,
             resultCount: chunks.length,
-            sources: [...new Set(chunks.map((c) => c.documentTitle).filter(Boolean))],
+            sources,
           },
         });
+        // Record even when resultCount is 0 so downstream can distinguish
+        // searched-found-nothing; the badge only renders when resultCount > 0.
+        ctx.recordKnowledge?.({ resultCount: chunks.length, sources });
         if (chunks.length === 0) {
           return { results: [], note: "No relevant knowledge found." };
         }
