@@ -27,6 +27,9 @@ model Tenant {
   // sha256(hex) of the inbound API key for the OpenAI-compatible facade. Auth
   // resolves the calling tenant by hashing the Bearer token and matching here.
   apiKeyHash    String?  @unique
+  // Per-workspace guardrail model override (D-06 Phase 41).
+  // null = use the agent's own chat model as the guardrail classifier.
+  guardModel    String?
   createdAt     DateTime @default(now())
   agents        Agent[]
   buckets       Bucket[]
