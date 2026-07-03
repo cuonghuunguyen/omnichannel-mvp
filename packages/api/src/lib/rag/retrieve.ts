@@ -59,6 +59,11 @@ export type RetrieveOptions = {
    * for query embedding (KB-05 / D-04). Never logged or persisted.
    */
   embeddingApiKey?: string;
+  /**
+   * BYOK per-request provider key (from X-Provider-Key header), used for the
+   * query-rewrite and rerank LLM calls in this pipeline. Never logged or persisted.
+   */
+  providerApiKey?: string;
 };
 
 export async function retrieve(opts: RetrieveOptions): Promise<RetrievedChunk[]> {
@@ -66,7 +71,12 @@ export async function retrieve(opts: RetrieveOptions): Promise<RetrievedChunk[]>
   if (bucketIds.length === 0) return [];
 
   const topK = opts.topK ?? 5;
-  const { query, keywords } = await rewriteQuery(opts.pipelineModel, opts.query, opts.context);
+  const { query, keywords } = await rewriteQuery(
+    opts.pipelineModel,
+    opts.query,
+    opts.context,
+    opts.providerApiKey,
+  );
   // Sparse arm searches on the query plus expansion keywords for wider recall.
   const sparse = sparseVector([query, ...keywords].join(" "));
 
@@ -129,6 +139,6 @@ export async function retrieve(opts: RetrieveOptions): Promise<RetrievedChunk[]>
     .slice(0, RERANK_POOL);
   if (fused.length === 0) return [];
 
-  const rerank = llmReranker(opts.pipelineModel);
+  const rerank = llmReranker(opts.pipelineModel, opts.providerApiKey);
   return rerank(query, fused, topK);
 }

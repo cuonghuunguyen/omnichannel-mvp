@@ -14,7 +14,7 @@ export type Reranker = (
 ) => Promise<RetrievedChunk[]>;
 
 /** Build the default LLM reranker bound to a model id. */
-export function llmReranker(pipelineModel: string): Reranker {
+export function llmReranker(pipelineModel: string, providerApiKey?: string): Reranker {
   return async (query, candidates, topK) => {
     if (candidates.length <= 1) return candidates.slice(0, topK);
 
@@ -28,7 +28,7 @@ export function llmReranker(pipelineModel: string): Reranker {
 
     try {
       const { text } = await generateText({
-        model: resolveModel(pipelineModel),
+        model: resolveModel(pipelineModel, providerApiKey),
         temperature: 0,
         system,
         prompt: `QUERY:\n${query}\n\nPASSAGES:\n${list}`,

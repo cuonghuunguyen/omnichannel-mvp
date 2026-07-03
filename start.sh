@@ -69,7 +69,7 @@ if [ "$SKIP_SETUP" = false ]; then
   done
 
   log "Starting backing services — Qdrant + MySQL (docker compose up -d)"
-  docker_compose up -d
+  docker_compose -f docker-compose.dev.yml up -d
 
   log "Waiting for MySQL to be healthy"
   for i in $(seq 1 45); do

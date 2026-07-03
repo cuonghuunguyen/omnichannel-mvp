@@ -41,9 +41,9 @@ export function qdrantClient(): QdrantClient {
       // The REST client defaults to checking server compatibility on first call;
       // skip it so a version skew doesn't hard-fail the store.
       checkCompatibility: false,
-      // Bound every query/upsert/delete/createCollection (seconds) so a hung
-      // Qdrant can't stall ingestion or retrieval. Default 300s is too long.
-      timeout: TIMEOUTS.qdrantSec,
+      // Bound every query/upsert/delete/createCollection so a hung Qdrant
+      // can't stall ingestion or retrieval. The JS client's setTimeout takes ms.
+      timeout: TIMEOUTS.qdrantSec * 1000,
     });
   }
   return globalForRag.qdrant;

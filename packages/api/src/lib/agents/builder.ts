@@ -63,6 +63,8 @@ export type BuildConfigInput = {
   currentDraft?: AgentInput | null;
   /** True when refining an existing agent (vs. designing one from scratch). */
   editing?: boolean;
+  /** BYOK provider key from X-Provider-Key header; uses env key when absent. */
+  providerKey?: string;
 };
 
 /** The builder model: a dedicated one via env, else the default chat model. */
@@ -119,7 +121,7 @@ Keep a warm, efficient tone. You are configuring software, not role-playing the 
  * around them); the UI maps each part to a card and merges the config patch.
  */
 export function buildConfig(input: BuildConfigInput): ReadableStream<UIMessageChunk> {
-  const { messages, currentDraft, editing = false } = input;
+  const { messages, currentDraft, editing = false, providerKey } = input;
 
   return createUIMessageStream<BuilderUIMessage>({
     originalMessages: messages,
@@ -215,7 +217,7 @@ export function buildConfig(input: BuildConfigInput): ReadableStream<UIMessageCh
       };
 
       const result = streamText({
-        model: resolveModel(builderModelId()),
+        model: resolveModel(builderModelId(), providerKey),
         system: `${SYSTEM}\n\n${draftContext(currentDraft, editing)}`,
         temperature: 0.4,
         messages: await convertToModelMessages(messages),

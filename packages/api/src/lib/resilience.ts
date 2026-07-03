@@ -23,7 +23,7 @@ export const TIMEOUTS = {
   llmMs: ms(process.env.LLM_TIMEOUT_MS, 120_000),
   /** RAG pipeline LLM calls (query-rewrite / rerank): short, non-streaming. */
   ragLlmMs: ms(process.env.RAG_LLM_TIMEOUT_MS, 30_000),
-  /** Qdrant client. SECONDS — the QdrantClient constructor expects seconds. */
+  /** Qdrant timeout in seconds (multiplied by 1000 before passing to the JS client's setTimeout). */
   qdrantSec: ms(process.env.QDRANT_TIMEOUT_SEC, 30),
 } as const;
 

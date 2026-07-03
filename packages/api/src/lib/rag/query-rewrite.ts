@@ -24,13 +24,14 @@ export async function rewriteQuery(
   pipelineModel: string,
   latestUserText: string,
   context = "",
+  providerApiKey?: string,
 ): Promise<RewrittenQuery> {
   const fallback: RewrittenQuery = { query: latestUserText.trim(), keywords: [] };
   if (!latestUserText.trim()) return fallback;
 
   try {
     const { text } = await generateText({
-      model: resolveModel(pipelineModel),
+      model: resolveModel(pipelineModel, providerApiKey),
       temperature: 0,
       system: SYSTEM,
       prompt:

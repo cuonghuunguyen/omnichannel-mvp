@@ -65,6 +65,7 @@ export async function buildAgentRuntime(
   recentContext: string,
   ctx: ToolContext,
   embeddingApiKey?: string,
+  providerApiKey?: string,
 ) {
   const { builtinTools, customTools, mcpServers, guardrails, knowledge } = agent;
   const mcp = await connectMcpServers(mcpServers);
@@ -86,6 +87,7 @@ export async function buildAgentRuntime(
         recentContext,
         ctx,
         embeddingApiKey,
+        providerApiKey,
       ),
       ...buildBuiltinTools(builtinTools, routable, ctx),
     },

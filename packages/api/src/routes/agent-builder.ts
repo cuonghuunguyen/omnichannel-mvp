@@ -19,10 +19,16 @@ agentBuilderRouter.post("/", async (req, res) => {
     return;
   }
 
+  // stripProviderKey middleware reads X-Provider-Key before logging and stores it here.
+  const providerKey = typeof res.locals.providerApiKey === 'string'
+    ? res.locals.providerApiKey
+    : undefined;
+
   const stream = buildConfig({
     messages: parsed.data.messages as never as BuilderUIMessage[],
     currentDraft: (parsed.data.currentDraft ?? null) as AgentInput | null,
     editing: parsed.data.editing ?? false,
+    providerKey,
   });
 
   pipeUIMessageStreamToResponse({ response: res, stream });

@@ -68,6 +68,7 @@ export async function runInputGuard(
   messages: ChatUIMessage[],
   systemScope?: string,
   tenantGuardModel?: string | null,
+  providerApiKey?: string,
 ): Promise<GuardVerdict | null> {
   const scope = guardrails.scope?.trim();
   if (!guardrails.enabled || !scope) return null;
@@ -100,7 +101,7 @@ export async function runInputGuard(
 
   try {
     const { text } = await generateText({
-      model: resolveModel(guardModelId(agentModel, tenantGuardModel)),
+      model: resolveModel(guardModelId(agentModel, tenantGuardModel), providerApiKey),
       temperature: 0,
       system,
       prompt,

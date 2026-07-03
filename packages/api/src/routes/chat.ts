@@ -32,6 +32,13 @@ chatRouter.post("/", async (req, res) => {
 
   const webhook = await loadWebhookTarget(tenantId);
 
+  // stripProviderKey / stripEmbeddingKey middleware read X-Provider-Key /
+  // X-Embedding-Key before logging and store them here.
+  const providerApiKey =
+    typeof res.locals.providerApiKey === "string" ? res.locals.providerApiKey : undefined;
+  const embeddingApiKey =
+    typeof res.locals.embeddingApiKey === "string" ? res.locals.embeddingApiKey : undefined;
+
   const stream = orchestrate({
     tenantId,
     conversationId,
@@ -39,6 +46,8 @@ chatRouter.post("/", async (req, res) => {
     routingFlag: routingFlag ?? null,
     webhook,
     messages: messages as never,
+    providerApiKey,
+    embeddingApiKey,
   });
 
   pipeUIMessageStreamToResponse({ response: res, stream });

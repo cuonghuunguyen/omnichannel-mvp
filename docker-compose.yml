@@ -1,0 +1,69 @@
+# Production stack for the agent-routing sidecar.
+#
+# Unlike docker-compose.dev.yml, this file does NOT run its own MySQL — in
+# production the relational DB already exists (the Laravel/Sail stack's MySQL,
+# see ../compose.yaml). The `api` container reaches that server over the network
+# using the connection details from the shared root .env (../.env).
+#
+# Variables are read from the OUTER .env (../.env). Compose only auto-loads a
+# .env from the project directory, so pass it explicitly — no symlink needed:
+#
+#   docker compose --env-file ../.env up -d
+#
+# `env_file: ../.env` below additionally injects every key from that file into
+# the api container (ANTHROPIC_API_KEY, INTERNAL_API_SECRET, EMBEDDING_PROVIDER,
+# …), so app secrets/config live in one place.
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: agent-routing-qdrant
+    restart: unless-stopped
+    ports:
+      - "${FORWARD_QDRANT_PORT:-6333}:6333" # REST
+      - "${FORWARD_QDRANT_GRPC_PORT:-6334}:6334" # gRPC
+    volumes:
+      - qdrant-storage:/qdrant/storage
+    healthcheck:
+      # Qdrant ships no shell/curl; hit /healthz via its own bundled binary.
+      test: ["CMD", "/qdrant/qdrant", "--version"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # The AI Config API (@agent-routing/api). Reaches qdrant by service name and
+  # the EXTERNAL MySQL via the ../.env connection details. Schema migrations are
+  # NOT run here; apply them out-of-band with `prisma migrate deploy` against the
+  # `agents` database before/after deploy.
+  api:
+    build:
+      context: .
+      dockerfile: packages/api/Dockerfile
+    container_name: agent-routing-api
+    restart: unless-stopped
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    env_file:
+      - ../.env
+    environment:
+      NODE_ENV: production
+      API_PORT: 4000
+      # Reuse the outer .env DB host/creds, but the sidecar owns its own `agents`
+      # database on that server (separate from the Laravel app DB).
+      DATABASE_URL: mysql://${DB_USERNAME}:${DB_PASSWORD}@${DB_HOST:-mysql}:${DB_PORT:-3306}/agents
+      QDRANT_URL: http://qdrant:6333
+    ports:
+      - "${API_PORT:-4000}:4000"
+    healthcheck:
+      test:
+        - "CMD"
+        - "node"
+        - "-e"
+        - "fetch('http://127.0.0.1:4000/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+volumes:
+  qdrant-storage:

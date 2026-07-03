@@ -14,11 +14,12 @@ catalogRouter.get("/", (_req, res) => {
         name: "Anthropic",
         kind: "chat",
         models: [
-          { id: "claude-3-5-sonnet-20241022", displayName: "Claude 3.5 Sonnet" },
-          { id: "claude-3-5-haiku-20241022", displayName: "Claude 3.5 Haiku" },
-          { id: "claude-opus-4-5-20251101", displayName: "Claude Opus 4.5" },
-          { id: "claude-sonnet-4-5-20250929", displayName: "Claude Sonnet 4.5" },
+          { id: "claude-fable-5", displayName: "Claude Fable 5" },
+          { id: "claude-opus-4-8", displayName: "Claude Opus 4.8" },
+          { id: "claude-sonnet-5", displayName: "Claude Sonnet 5" },
           { id: "claude-haiku-4-5-20251001", displayName: "Claude Haiku 4.5" },
+          { id: "claude-opus-4-5-20251101", displayName: "Claude Opus 4.5 (legacy)" },
+          { id: "claude-sonnet-4-5-20250929", displayName: "Claude Sonnet 4.5 (legacy)" },
         ],
       },
       {
@@ -26,10 +27,8 @@ catalogRouter.get("/", (_req, res) => {
         name: "DeepSeek",
         kind: "chat",
         models: [
-          { id: "deepseek-chat", displayName: "DeepSeek Chat" },
-          { id: "deepseek-reasoner", displayName: "DeepSeek Reasoner" },
-          { id: "deepseek-v3", displayName: "DeepSeek V3" },
-          { id: "deepseek-r1", displayName: "DeepSeek R1" },
+          { id: "deepseek-v4-flash", displayName: "DeepSeek V4 Flash" },
+          { id: "deepseek-v4-pro", displayName: "DeepSeek V4 Pro" },
         ],
       },
       {
@@ -46,9 +45,10 @@ catalogRouter.get("/", (_req, res) => {
         name: "Voyage",
         kind: "embedding",
         models: [
-          { id: "voyage-3", displayName: "voyage-3" },
-          { id: "voyage-3-lite", displayName: "voyage-3-lite" },
-          { id: "voyage-multimodal-3", displayName: "voyage-multimodal-3" },
+          { id: "voyage-4-large", displayName: "voyage-4-large" },
+          { id: "voyage-4", displayName: "voyage-4" },
+          { id: "voyage-4-lite", displayName: "voyage-4-lite" },
+          { id: "voyage-multimodal-3.5", displayName: "voyage-multimodal-3.5" },
         ],
       },
       {

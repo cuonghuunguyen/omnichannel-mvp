@@ -89,6 +89,7 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
         messages,
         systemScope,
         tenant?.guardModel,
+        input.providerApiKey,
       );
       if (verdict?.blocked) {
         const refusalText = guardrails.refusal?.trim() || DEFAULT_REFUSAL;
@@ -162,6 +163,7 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
             recordKnowledge: (info) => knowledgeHits.push(info),
           },
           input.embeddingApiKey,
+          input.providerApiKey,
         );
 
         let text: string;

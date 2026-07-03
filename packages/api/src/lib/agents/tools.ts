@@ -144,6 +144,7 @@ export function buildKnowledgeTool(
   recentContext: string,
   ctx: ToolContext,
   embeddingApiKey?: string,
+  providerApiKey?: string,
 ): ToolSet {
   const bucketIds = knowledge.bucketIds ?? [];
   if (!knowledge.enabled || bucketIds.length === 0) return {};
@@ -171,6 +172,7 @@ export function buildKnowledgeTool(
             topK,
             pipelineModel,
             embeddingApiKey,
+            providerApiKey,
           });
           setCachedChunks(key, chunks);
         }
