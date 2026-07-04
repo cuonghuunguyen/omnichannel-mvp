@@ -40,6 +40,15 @@ COPY packages/chat/package.json packages/chat/
 RUN pnpm install --frozen-lockfile --filter @agent-routing/api... --ignore-scripts \
  && pnpm rebuild --filter @agent-routing/api... \
       @prisma/engines prisma esbuild onnxruntime-node protobufjs
+# Bake the default LOCAL embedding model into the image so the runtime NEVER
+# downloads it inside an ingest request. On a memory-constrained host the cold
+# in-request download+decompress+load OOM-kills the process (exit 137), which
+# surfaces to callers as cURL 52 "empty reply" and silently drops ingests. The
+# transformers .cache written here lives under /app/node_modules and is inherited
+# by the runtime stage, so cold start only LOADS the model from disk (safe). Kept
+# before the app-source COPY so this ~130 MB layer caches across source edits.
+# Must match PROVIDER_DEFAULTS.local in src/lib/rag/embeddings.ts.
+RUN cd packages/api && node -e "import('@huggingface/transformers').then(async (m) => { const p = await m.pipeline('feature-extraction', 'Xenova/bge-small-en-v1.5'); await p(['warm'], { pooling: 'mean', normalize: true }); console.log('[build] baked local embedding model Xenova/bge-small-en-v1.5'); }).catch((e) => { console.error('[build] failed to bake embedding model:', e); process.exit(1); })"
 # App source, then generate the Prisma client + typecheck the shipping source.
 COPY packages/api/ packages/api/
 WORKDIR /app/packages/api
