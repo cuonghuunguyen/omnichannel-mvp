@@ -28,7 +28,12 @@ export function conversationCallbacks(
       authorAgentId: string;
       authorAgentName: string;
       /** Present only when the hop's knowledge-tool retrieval found results (KB-05). */
-      usedKnowledge?: { resultCount: number; sources: string[] };
+      usedKnowledge?: { resultCount: number; sources: string[]; buckets?: string[] };
+      /**
+       * Present only when the hop had tool calls or reasoning (D-03). Tool-call
+       * entries are intent-level summaries — never raw args/results (OBS-01).
+       */
+      aiDetail?: { toolCalls: { name: string; summary: string }[]; reasoning?: string };
     }) => dispatchEvent(target, conversationId, { type: "assistant_message", ...input }),
 
     /** Record an agent handoff so the conversation's owner is updated. */

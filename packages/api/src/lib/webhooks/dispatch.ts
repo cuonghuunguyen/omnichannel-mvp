@@ -21,7 +21,12 @@ export type ConversationEvent =
       authorAgentId: string;
       authorAgentName: string;
       /** Present only when the hop's knowledge-tool retrieval found results (KB-05). */
-      usedKnowledge?: { resultCount: number; sources: string[] };
+      usedKnowledge?: { resultCount: number; sources: string[]; buckets?: string[] };
+      /**
+       * Present only when the hop had tool calls or reasoning (D-01/D-03). Tool-call
+       * entries are intent-level summaries — never raw args/results or secrets (OBS-01).
+       */
+      aiDetail?: { toolCalls: { name: string; summary: string }[]; reasoning?: string };
     }
   | { type: "set_agent"; agentId: string; agentName: string }
   | { type: "escalate"; humanAgentId: string | null; reason?: string }

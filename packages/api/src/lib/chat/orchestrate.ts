@@ -56,6 +56,41 @@ async function fetchAgent(id: string, tenantId: string): Promise<AgentDTO | null
 }
 
 /**
+ * Build an intent-level, human-readable summary of a single tool call for the
+ * dispatched aiDetail block (D-01). Only specific, known scalar fields are read
+ * off the call's input/output to compose the sentence — the raw input/output
+ * objects themselves are never included or serialized (OBS-01 hard constraint:
+ * no raw args/results, no BYOK/provider secrets in the dispatched detail).
+ */
+function summarizeToolCall(
+  call: { toolName: string; input: unknown },
+  toolResult: { output: unknown } | undefined,
+): string {
+  const input = (call.input ?? {}) as Record<string, unknown>;
+  const output = (toolResult?.output ?? {}) as Record<string, unknown>;
+  switch (call.toolName) {
+    case "search_knowledge": {
+      const query = typeof input.query === "string" ? input.query : "";
+      const resultCount = Array.isArray(output.results) ? output.results.length : 0;
+      return `Knowledge search: '${query}' → ${resultCount} results`;
+    }
+    case "deliver_to_agent": {
+      const reason = typeof input.reason === "string" ? input.reason : "";
+      const routedTo = typeof output.routedTo === "string" ? output.routedTo : "another agent";
+      return `Handed off to ${routedTo}: ${reason}`;
+    }
+    case "deliver_to_human": {
+      const reason = typeof input.reason === "string" ? input.reason : "";
+      return `Escalated to human: ${reason}`;
+    }
+    case "end_conversation":
+      return "Closed the conversation";
+    default:
+      return `Called ${call.toolName}`;
+  }
+}
+
+/**
  * Run the orchestration loop and return a UIMessage stream. Persistence and
  * conversation-state changes are pushed back to the chat service via callbacks.
  * The caller (the /chat route) is responsible for the open/human/closed gates
@@ -142,7 +177,12 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
       for (let hop = 0; hop < MAX_HOPS; hop++) {
         let handoff: HandoffSignal | null = null;
         const sent: string[] = [];
-        const knowledgeHits: { resultCount: number; sources: string[] }[] = [];
+        const knowledgeHits: {
+          resultCount: number;
+          sources: string[];
+          buckets?: string[];
+          query?: string;
+        }[] = [];
 
         // Hop 0's current agent is the entry agent, whose roster we already
         // loaded for the guard above; reuse it instead of querying again.
@@ -167,6 +207,7 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
         );
 
         let text: string;
+        let aiDetail: { toolCalls: { name: string; summary: string }[]; reasoning?: string } | undefined;
         try {
           const agentForMeta = current;
           const result = streamText({
@@ -208,6 +249,26 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
           // transcript so the next agent sees the full context.
           text = await result.text;
           modelMessages = [...modelMessages, ...(await result.response).messages];
+
+          // D-01/D-02/D-03: read the hop's tool calls + reasoning natively off
+          // the StreamTextResult (result.steps/result.reasoningText, ai@6) and
+          // build a compact, intent-level aiDetail summary. Omit entirely when
+          // the hop had neither tool calls nor reasoning — the common case for
+          // agents on non-reasoning models (Pitfall 2).
+          const steps = await result.steps;
+          const reasoningText = await result.reasoningText;
+          const toolCalls = steps.flatMap((step) =>
+            step.toolCalls.map((call) => {
+              const toolResult = step.toolResults.find(
+                (r) => r.toolCallId === call.toolCallId,
+              );
+              return { name: call.toolName, summary: summarizeToolCall(call, toolResult) };
+            }),
+          );
+          aiDetail =
+            toolCalls.length > 0 || reasoningText
+              ? { toolCalls, ...(reasoningText ? { reasoning: reasoningText } : {}) }
+              : undefined;
         } finally {
           // Close this hop's MCP clients once its stream is fully consumed.
           await closeMcp();
@@ -224,6 +285,12 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
             (sum, hit) => sum + hit.resultCount,
             0,
           );
+          // D-05: dedupe + cap bucket names the same way sources already are —
+          // only buckets that actually produced hits (threaded via tools.ts).
+          const buckets = [...new Set(knowledgeHits.flatMap((hit) => hit.buckets ?? []))].slice(
+            0,
+            5,
+          );
           const usedKnowledge =
             knowledgeResultCount > 0
               ? {
@@ -232,6 +299,7 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
                     0,
                     5,
                   ),
+                  ...(buckets.length > 0 ? { buckets } : {}),
                 }
               : undefined;
           await cb.appendAssistantMessage({
@@ -239,6 +307,7 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
             authorAgentId: current.id,
             authorAgentName: current.name,
             ...(usedKnowledge ? { usedKnowledge } : {}),
+            ...(aiDetail ? { aiDetail } : {}),
           });
         }
 
