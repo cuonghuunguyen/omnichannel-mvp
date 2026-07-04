@@ -1,7 +1,7 @@
 // Static provider and model catalog. Returns the full set of providers and
-// models this sidecar supports — chat (Anthropic, DeepSeek) and embedding
-// (OpenAI, Voyage, Voyage-Multimodal, Local). No auth required; this is
-// metadata only — no keys or tenant data is included.
+// models this sidecar supports — chat (Anthropic, DeepSeek, Google Gemini) and
+// embedding (OpenAI, Voyage, Voyage-Multimodal, Local). No auth required; this
+// is metadata only — no keys or tenant data is included.
 import { Router } from "express";
 
 export const catalogRouter: Router = Router();
@@ -29,6 +29,17 @@ catalogRouter.get("/", (_req, res) => {
         models: [
           { id: "deepseek-v4-flash", displayName: "DeepSeek V4 Flash" },
           { id: "deepseek-v4-pro", displayName: "DeepSeek V4 Pro" },
+        ],
+      },
+      {
+        id: "google",
+        name: "Google Gemini",
+        kind: "chat",
+        models: [
+          { id: "gemini-3-pro-preview", displayName: "Gemini 3 Pro" },
+          { id: "gemini-3-flash-preview", displayName: "Gemini 3 Flash" },
+          { id: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro" },
+          { id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash" },
         ],
       },
       {
