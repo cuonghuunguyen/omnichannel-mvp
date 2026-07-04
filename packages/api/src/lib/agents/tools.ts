@@ -8,6 +8,7 @@ import type { ChatUIMessage } from "@/lib/agents/ui-messages";
 import { retrieve } from "@/lib/rag/retrieve";
 import { cacheKey, getCachedChunks, setCachedChunks } from "@/lib/rag/retrieve-cache";
 import { TIMEOUTS } from "@/lib/resilience";
+import { db } from "@/lib/db";
 
 /** What a handoff tool tells the orchestration loop to do next. */
 export type HandoffSignal =
@@ -26,7 +27,14 @@ export type ToolContext = {
   /** Records text spoken via `send_message` so it can be persisted. */
   recordSent: (text: string) => void;
   /** Records a knowledge-tool retrieval outcome so it can be surfaced on the reply. */
-  recordKnowledge?: (info: { resultCount: number; sources: string[] }) => void;
+  recordKnowledge?: (info: {
+    resultCount: number;
+    sources: string[];
+    /** Bucket names that actually produced hits (D-05); omitted when there were none. */
+    buckets?: string[];
+    /** The search query issued, for building the tool-call summary (D-01). */
+    query?: string;
+  }) => void;
 };
 
 /**
@@ -177,6 +185,17 @@ export function buildKnowledgeTool(
           setCachedChunks(key, chunks);
         }
         const sources = [...new Set(chunks.map((c) => c.documentTitle).filter(Boolean))];
+        // D-05: resolve the distinct bucket ids actually represented in the
+        // results (not the full bound bucketIds) — only buckets that produced
+        // hits, per Assumption A2.
+        const hitBucketIds = [...new Set(chunks.map((c) => c.bucketId).filter(Boolean))];
+        const bucketRows = hitBucketIds.length
+          ? await db.bucket.findMany({
+              where: { id: { in: hitBucketIds } },
+              select: { name: true },
+            })
+          : [];
+        const buckets = bucketRows.map((b) => b.name);
         ctx.writer.write({
           type: "data-knowledge",
           data: {
@@ -187,7 +206,7 @@ export function buildKnowledgeTool(
         });
         // Record even when resultCount is 0 so downstream can distinguish
         // searched-found-nothing; the badge only renders when resultCount > 0.
-        ctx.recordKnowledge?.({ resultCount: chunks.length, sources });
+        ctx.recordKnowledge?.({ resultCount: chunks.length, sources, buckets, query });
         if (chunks.length === 0) {
           return { results: [], note: "No relevant knowledge found." };
         }
