@@ -97,13 +97,19 @@ async function createCollection(name: string, dim: number): Promise<void> {
   }
   // Payload indexes for fast filtering and document-scoped deletes. Idempotent:
   // re-creating an existing index is a no-op on the server.
-  for (const field of ["tenant_id", "bucket_id", "document_id"]) {
+  for (const field of ["tenant_id", "bucket_id", "document_id", "tags", "source_type"]) {
     await client
       .createPayloadIndex(name, { field_name: field, field_schema: "keyword", wait: true })
       .catch(() => {
         /* index already exists — ignore */
       });
   }
+  // ingested_at is a datetime range/filter field (D-13/D-16), not keyword.
+  await client
+    .createPayloadIndex(name, { field_name: "ingested_at", field_schema: "datetime", wait: true })
+    .catch(() => {
+      /* index already exists — ignore */
+    });
 }
 
 /** Drop a bucket's whole collection (used when the bucket is deleted). */

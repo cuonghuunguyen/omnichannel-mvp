@@ -88,6 +88,16 @@ export async function getBucket(id: string, tenantId: string): Promise<Bucket | 
 }
 
 /**
+ * A bucket's embedding config plus the extra per-bucket stats retrieval/reindex
+ * need at query time: the relevance-floor override (plan 45-04) and the
+ * current BM25 length-norm average (plan 45-05 reindex, document-mode encoding).
+ */
+export type BucketEmbeddingConfig = EmbeddingConfig & {
+  relevanceFloorOverride: number | null;
+  avgChunkLength: number;
+};
+
+/**
  * Resolve only the embedding config buckets need at query time (cheap). Scoped
  * by tenant: buckets outside the tenant are simply not returned, so retrieval
  * over a foreign bucket id finds no config and searches nothing.
@@ -100,11 +110,17 @@ export async function getBucketEmbeddingConfigs(
   ids: string[],
   tenantId: string,
   embeddingApiKey?: string,
-): Promise<Map<string, EmbeddingConfig>> {
+): Promise<Map<string, BucketEmbeddingConfig>> {
   if (ids.length === 0) return new Map();
   const rows = await db.bucket.findMany({
     where: { id: { in: ids }, tenantId },
-    select: { id: true, embeddingProvider: true, embeddingModel: true },
+    select: {
+      id: true,
+      embeddingProvider: true,
+      embeddingModel: true,
+      relevanceFloorOverride: true,
+      avgChunkLength: true,
+    },
   });
   return new Map(
     rows.map((r) => [
@@ -112,6 +128,8 @@ export async function getBucketEmbeddingConfigs(
       {
         provider: r.embeddingProvider as EmbeddingProviderId,
         model: r.embeddingModel,
+        relevanceFloorOverride: r.relevanceFloorOverride,
+        avgChunkLength: r.avgChunkLength,
         ...(embeddingApiKey ? { apiKey: embeddingApiKey } : {}),
       },
     ]),
@@ -277,6 +295,23 @@ async function storeDocument(args: {
     throw new DuplicateDocumentError(existingDoc.id, existingDoc.title);
   }
 
+  // Resolve the bucket's current BM25 length-norm stat + total prior chunk
+  // count once per call — used for document-mode sparse encoding below and to
+  // fold this ingest's chunk lengths into the running average after upsert
+  // (D-10/D-11). Read directly (not via the Bucket type) since avgChunkLength
+  // isn't part of that shared shape.
+  const bucketStats = await db.bucket.findUnique({
+    where: { id: bucketId },
+    select: { avgChunkLength: true },
+  });
+  const prevAvgChunkLength = bucketStats?.avgChunkLength ?? 0;
+  const avgDocLen = prevAvgChunkLength > 0 ? prevAvgChunkLength : undefined;
+  const priorAgg = await db.document.aggregate({
+    where: { bucketId },
+    _sum: { chunkCount: true },
+  });
+  const prevChunkCount = priorAgg._sum.chunkCount ?? 0;
+
   const provider = getEmbeddingProvider({
     provider: bucket.embeddingProvider,
     model: bucket.embeddingModel,
@@ -318,13 +353,15 @@ async function storeDocument(args: {
     },
   });
 
+  const ingestedAt = new Date().toISOString();
+
   const point = (
     idx: number,
     embedding: number[],
     content: string,
     extra: Record<string, unknown>,
   ) => {
-    const sparse = sparseVector(content);
+    const sparse = sparseVector(content, { mode: "document", avgDocLen });
     return {
       id: randomUUID(),
       vector: { [DENSE]: embedding, ...(sparse ? { [SPARSE]: sparse } : {}) },
@@ -337,6 +374,12 @@ async function storeDocument(args: {
         metadata,
         document_title: title,
         document_source: source,
+        // Promoted top-level keys (D-13/D-16) so retrieval/filtering can query
+        // them directly without reaching into the nested `metadata` blob.
+        tags: (metadata.tags as string[] | undefined) ?? [],
+        source_type: (metadata.sourceType as string | undefined) ?? null,
+        ingested_at: ingestedAt,
+        content_hash: hash,
         ...extra,
       },
     };
@@ -365,6 +408,14 @@ async function storeDocument(args: {
       })
       .catch(() => {});
     throw err;
+  }
+
+  // Fold this ingest's chunk token lengths into the bucket's running average
+  // (D-10). Text chunks only — image points have no meaningful token length.
+  const chunkTokenLengths = chunks.map((c) => tokenize(c.content).length);
+  if (chunkTokenLengths.length > 0) {
+    const newAvg = nextAvgChunkLength(prevAvgChunkLength, prevChunkCount, chunkTokenLengths);
+    await db.bucket.update({ where: { id: bucketId }, data: { avgChunkLength: newAvg } });
   }
 
   return {
