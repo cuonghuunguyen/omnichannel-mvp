@@ -12,3 +12,19 @@ export function ragError(err: unknown): string {
     ? "RAG store unavailable — run `docker compose up -d` and set QDRANT_URL (e.g. http://localhost:6333)."
     : msg;
 }
+
+/**
+ * Thrown when a document's content hash already exists in the target bucket
+ * (D-02 dedup block-cleanly path). Carries the conflicting document's id and
+ * title so callers (sidecar route -> Laravel job `failed()`) can surface a
+ * clear "already ingested as ..." message without a second lookup.
+ */
+export class DuplicateDocumentError extends Error {
+  constructor(
+    public readonly existingId: string,
+    public readonly existingTitle: string,
+  ) {
+    super(`Duplicate document content: matches existing document "${existingTitle}" (${existingId})`);
+    this.name = "DuplicateDocumentError";
+  }
+}
