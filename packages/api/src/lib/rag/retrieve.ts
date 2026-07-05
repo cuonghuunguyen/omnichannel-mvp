@@ -15,12 +15,20 @@ import { getEmbeddingProvider, type EmbeddingConfig } from "@/lib/rag/embeddings
 import { sparseVector } from "@/lib/rag/sparse";
 import { rewriteQuery } from "@/lib/rag/query-rewrite";
 import { llmReranker } from "@/lib/rag/rerank";
+import { applyRelevanceFloor, buildRetrievalFilter } from "@/lib/rag/retrieve-filter";
 import type { RetrievedChunk } from "@/lib/rag/types";
 
 /** Candidates pulled per prefetch arm (dense / sparse) before fusion. */
 const CANDIDATES_PER_LIST = 20;
 /** Fused candidates handed to the reranker. */
 const RERANK_POOL = 12;
+/**
+ * Workspace-wide default relevance floor (0-1 reranker scale), overridable
+ * per bucket via `Bucket.relevanceFloorOverride` (D-06). Env-configurable
+ * since there's no eval harness to tune it against (RESEARCH Assumption A1);
+ * manual tuning via RAG_RELEVANCE_FLOOR is the intended workflow.
+ */
+const DEFAULT_FLOOR = Number(process.env.RAG_RELEVANCE_FLOOR) || 0.3;
 
 type QdrantPoint = {
   id: string | number;
@@ -64,6 +72,14 @@ export type RetrieveOptions = {
    * query-rewrite and rerank LLM calls in this pipeline. Never logged or persisted.
    */
   providerApiKey?: string;
+  /** Restrict to chunks tagged with any of these (OR semantics, D-15). */
+  tags?: string[];
+  /** Restrict to chunks ingested at/after this ISO date/datetime. */
+  dateFrom?: string;
+  /** Restrict to chunks ingested at/before this ISO date/datetime. */
+  dateTo?: string;
+  /** Restrict to chunks with this exact source type (e.g. "text" | "file"). */
+  sourceType?: string;
 };
 
 export async function retrieve(opts: RetrieveOptions): Promise<RetrievedChunk[]> {
@@ -78,7 +94,10 @@ export async function retrieve(opts: RetrieveOptions): Promise<RetrievedChunk[]>
     opts.providerApiKey,
   );
   // Sparse arm searches on the query plus expansion keywords for wider recall.
-  const sparse = sparseVector([query, ...keywords].join(" "));
+  // Query-mode: raw counts, no BM25 saturation/length-norm (D-09 asymmetry —
+  // saturating query-side TF the same way as document-side is an accuracy
+  // regression for repeated query terms).
+  const sparse = sparseVector([query, ...keywords].join(" "), { mode: "query" });
 
   // Embed the query once per distinct bucket embedding config. Scoped by tenant:
   // buckets outside the tenant return no config and are skipped below.
@@ -96,7 +115,21 @@ export async function retrieve(opts: RetrieveOptions): Promise<RetrievedChunk[]>
   const client = qdrantClient();
   // Defense-in-depth: the collection name already isolates tenants, but we also
   // filter on the tenant_id payload so a foreign id can never leak a hit.
-  const tenantFilter = { must: [{ key: "tenant_id", match: { value: opts.tenantId } }] };
+  // Optional tags/sourceType/date filters (D-13/D-14/D-15) are appended into
+  // this same `must` array — never a separate/replacing filter object
+  // (security-critical, T-45-02).
+  const filter = buildRetrievalFilter({
+    tenantId: opts.tenantId,
+    tags: opts.tags,
+    sourceType: opts.sourceType,
+    dateFrom: opts.dateFrom,
+    dateTo: opts.dateTo,
+  });
+  // Per-bucket relevance-floor override (D-06), resolved once alongside the
+  // embedding configs so no extra DB round trip is needed at floor-filter time.
+  const floorByBucket = new Map<string, number | null | undefined>(
+    [...configs.entries()].map(([bucketId, cfg]) => [bucketId, cfg.relevanceFloorOverride]),
+  );
 
   // Hybrid search every bucket (each its own collection), collect all hits.
   const perBucket = await Promise.all(
@@ -114,7 +147,7 @@ export async function retrieve(opts: RetrieveOptions): Promise<RetrievedChunk[]>
               : []),
           ],
           query: { fusion: "rrf" },
-          filter: tenantFilter,
+          filter,
           limit: RERANK_POOL,
           with_payload: true,
         });
@@ -140,5 +173,10 @@ export async function retrieve(opts: RetrieveOptions): Promise<RetrievedChunk[]>
   if (fused.length === 0) return [];
 
   const rerank = llmReranker(opts.pipelineModel, opts.providerApiKey);
-  return rerank(query, fused, topK);
+  const reranked = await rerank(query, fused, topK);
+  // Post-rerank quality gate (D-05): drop chunks below their bucket's
+  // effective floor (override ?? env default). An all-below-floor result set
+  // returns [] here, which search_knowledge already surfaces as a distinct
+  // "no relevant knowledge found" empty state (D-08).
+  return applyRelevanceFloor(reranked, floorByBucket, DEFAULT_FLOOR);
 }
