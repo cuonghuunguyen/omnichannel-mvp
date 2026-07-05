@@ -167,9 +167,36 @@ export function buildKnowledgeTool(
         "nothing relevant comes back, say you don't know rather than guessing.",
       inputSchema: z.object({
         query: z.string().describe("A focused, standalone search query."),
+        tags: z
+          .array(z.string())
+          .max(20)
+          .optional()
+          .describe("Optional tags to narrow the search to (max 20)."),
+        sourceType: z
+          .enum(["text", "file"])
+          .optional()
+          .describe("Optional source type to narrow the search to."),
+        dateFrom: z
+          .string()
+          .optional()
+          .describe("Optional ISO-8601 lower bound on document ingestion date."),
+        dateTo: z
+          .string()
+          .optional()
+          .describe("Optional ISO-8601 upper bound on document ingestion date."),
       }),
-      execute: async ({ query }) => {
-        const key = cacheKey({ tenantId, conversationId, bucketIds, topK, query });
+      execute: async ({ query, tags, sourceType, dateFrom, dateTo }) => {
+        const key = cacheKey({
+          tenantId,
+          conversationId,
+          bucketIds,
+          topK,
+          query,
+          tags,
+          sourceType,
+          dateFrom,
+          dateTo,
+        });
         let chunks = getCachedChunks(key);
         if (!chunks) {
           chunks = await retrieve({
@@ -181,6 +208,10 @@ export function buildKnowledgeTool(
             pipelineModel,
             embeddingApiKey,
             providerApiKey,
+            tags,
+            sourceType,
+            dateFrom,
+            dateTo,
           });
           setCachedChunks(key, chunks);
         }

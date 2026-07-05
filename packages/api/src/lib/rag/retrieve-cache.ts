@@ -29,17 +29,31 @@ export type CacheKeyParts = {
   bucketIds: string[];
   topK: number;
   query: string;
+  /**
+   * Optional metadata filters (plan 45-06 D-14). Included in the key so a
+   * repeated query with a different filter combination is never served a
+   * cached result computed under a different (or no) filter.
+   */
+  tags?: string[];
+  sourceType?: string;
+  dateFrom?: string;
+  dateTo?: string;
 };
 
-/** Build a stable cache key. Bucket set is order-independent. */
+/** Build a stable cache key. Bucket set (and tag set) is order-independent. */
 export function cacheKey(parts: CacheKeyParts): string {
   const buckets = [...new Set(parts.bucketIds)].sort().join(",");
+  const tags = [...new Set(parts.tags ?? [])].sort().join(",");
   return [
     parts.tenantId,
     parts.conversationId,
     buckets,
     String(parts.topK),
     normalize(parts.query),
+    tags,
+    parts.sourceType ?? "",
+    parts.dateFrom ?? "",
+    parts.dateTo ?? "",
   ].join("|");
 }
 

@@ -171,11 +171,31 @@ export const IngestFileInput = z.object({
   chunkStrategy: ChunkStrategy.optional(),
 });
 
-export const SearchInput = z.object({
-  bucketIds: z.array(z.string()),
-  query: z.string(),
-  topK: z.number().optional(),
-  model: z.string().optional(),
+export const SearchInput = z
+  .object({
+    bucketIds: z.array(z.string()),
+    query: z.string(),
+    topK: z.number().optional(),
+    model: z.string().optional(),
+    /** Bounded (V5) — prevents a pathologically large Qdrant OR-filter clause. */
+    tags: z.array(z.string()).max(20).optional(),
+    /** Enum, not a free string, so it can't inject arbitrary filter values (V5). */
+    sourceType: z.enum(["text", "file"]).optional(),
+    dateFrom: z.string().optional(),
+    dateTo: z.string().optional(),
+  })
+  .refine((v) => v.dateFrom === undefined || !Number.isNaN(Date.parse(v.dateFrom)), {
+    message: "dateFrom must be a valid ISO-8601 date string",
+    path: ["dateFrom"],
+  })
+  .refine((v) => v.dateTo === undefined || !Number.isNaN(Date.parse(v.dateTo)), {
+    message: "dateTo must be a valid ISO-8601 date string",
+    path: ["dateTo"],
+  });
+
+/** Per-bucket mutable settings (D-06): currently just the relevance-floor override. */
+export const UpdateBucketInput = z.object({
+  relevanceFloorOverride: z.number().min(0).max(1).nullable().optional(),
 });
 
 // ── Chat completion ──────────────────────────────────────────────────────────
@@ -254,6 +274,7 @@ export const components = {
   IngestDocumentInput,
   IngestFileInput,
   SearchInput,
+  UpdateBucketInput,
   ChatUIMessageInput,
   ChatTurnInput,
   AgentBuilderInput,

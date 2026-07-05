@@ -262,6 +262,10 @@ knowledgeRouter.post("/search", async (req, res) => {
       pipelineModel:
         input.model || process.env.RAG_PIPELINE_MODEL?.trim() || DEFAULT_MODEL_ID,
       embeddingApiKey,
+      tags: input.tags,
+      sourceType: input.sourceType,
+      dateFrom: input.dateFrom,
+      dateTo: input.dateTo,
     });
     res.json({ results });
   } catch (err) {
