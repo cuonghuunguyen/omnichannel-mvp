@@ -75,6 +75,12 @@ model Bucket {
   embeddingModel    String
   embeddingDim      Int
   createdAt         DateTime   @default(now())
+  // Running average chunk length (token count), maintained on each storeDocument()
+  // upsert; feeds BM25 document-length normalization (D-10 Phase 45).
+  avgChunkLength    Float      @default(0)
+  // Optional per-bucket override of the workspace-wide relevance-floor default
+  // (D-06 Phase 45). null = fall back to the tenant/env-configured default.
+  relevanceFloorOverride Float?
   documents         Document[]
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -94,9 +100,15 @@ model Document {
   metadata   String   @db.Text // JSON blob; set in ingestDocument
   chunkCount Int      @default(0)
   createdAt  DateTime @default(now())
+  // SHA-256 (hex) of the normalized raw text, computed pre-chunk/pre-embed.
+  // Nullable so pre-migration rows never collide (MySQL treats multiple NULLs
+  // in a unique index as distinct). Per-bucket exact-hash dedup (D-01/D-03/D-04
+  // Phase 45).
+  contentHash String? @db.VarChar(64)
 
   bucket Bucket @relation(fields: [bucketId], references: [id], onDelete: Cascade)
 
   @@index([bucketId])
   @@index([tenantId])
+  @@unique([bucketId, contentHash])
 }
