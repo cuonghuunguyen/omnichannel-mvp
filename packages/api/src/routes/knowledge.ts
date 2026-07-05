@@ -9,9 +9,11 @@ import {
   ingestFile,
   listBuckets,
   listDocuments,
+  updateBucket,
 } from "@/lib/rag/buckets";
 import { retrieve } from "@/lib/rag/retrieve";
-import { ragError } from "@/lib/rag/errors";
+import { reindexBucket } from "@/lib/rag/reindex";
+import { DuplicateDocumentError, ragError } from "@/lib/rag/errors";
 import { getEmbeddingProvider, PROVIDER_DEFAULTS } from "@/lib/rag/embeddings";
 import type { EmbeddingProviderId } from "@/lib/rag/types";
 import { DEFAULT_MODEL_ID } from "@/lib/models";
@@ -21,6 +23,7 @@ import {
   IngestDocumentInput,
   IngestFileInput,
   SearchInput,
+  UpdateBucketInput,
 } from "@/schemas";
 
 export const knowledgeRouter: Router = Router();
@@ -129,6 +132,42 @@ knowledgeRouter.delete("/buckets/:id", async (req, res) => {
   }
 });
 
+/** Update mutable bucket settings — currently just the relevance-floor override (D-06). */
+knowledgeRouter.patch("/buckets/:id", async (req, res) => {
+  const tenantId = String(res.locals.tenantId);
+  const parsed = UpdateBucketInput.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "invalid body" });
+    return;
+  }
+  try {
+    const bucket = await updateBucket(req.params.id, tenantId, parsed.data);
+    if (!bucket) {
+      res.status(404).json({ error: "bucket not found" });
+      return;
+    }
+    res.json({ bucket });
+  } catch (err) {
+    res.status(503).json({ error: ragError(err) });
+  }
+});
+
+/** Re-encode BM25 sparse vectors + promote metadata payload keys in place (D-12). */
+knowledgeRouter.post("/buckets/:id/reindex", async (req, res) => {
+  const tenantId = String(res.locals.tenantId);
+  try {
+    const bucket = await getBucket(req.params.id, tenantId);
+    if (!bucket) {
+      res.status(404).json({ error: "bucket not found" });
+      return;
+    }
+    const result = await reindexBucket(tenantId, req.params.id);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(503).json({ error: ragError(err) });
+  }
+});
+
 /** List a bucket's documents. */
 knowledgeRouter.get("/buckets/:id/documents", async (req, res) => {
   const tenantId = String(res.locals.tenantId);
@@ -168,6 +207,12 @@ knowledgeRouter.post("/buckets/:id/documents", async (req, res) => {
     });
     res.status(201).json({ document });
   } catch (err) {
+    if (err instanceof DuplicateDocumentError) {
+      res.status(409).json({
+        error: `duplicate content: matches existing document '${err.existingTitle}' (${err.existingId})`,
+      });
+      return;
+    }
     const msg = err instanceof Error ? err.message : String(err);
     if (msg === "bucket not found") {
       res.status(404).json({ error: "bucket not found" });
@@ -207,6 +252,12 @@ knowledgeRouter.post("/buckets/:id/files", uploadSingle("file"), async (req, res
     });
     res.status(201).json({ document });
   } catch (err) {
+    if (err instanceof DuplicateDocumentError) {
+      res.status(409).json({
+        error: `duplicate content: matches existing document '${err.existingTitle}' (${err.existingId})`,
+      });
+      return;
+    }
     const msg = err instanceof Error ? err.message : String(err);
     if (msg === "bucket not found") {
       res.status(404).json({ error: "bucket not found" });
