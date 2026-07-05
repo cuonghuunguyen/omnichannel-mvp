@@ -42,6 +42,7 @@ type BucketRow = {
   embeddingModel: string;
   embeddingDim: number;
   createdAt: Date;
+  relevanceFloorOverride: number | null;
 };
 
 function toBucket(row: BucketRow, counts?: { docs: number; chunks: number }): Bucket {
@@ -53,6 +54,7 @@ function toBucket(row: BucketRow, counts?: { docs: number; chunks: number }): Bu
     embeddingModel: row.embeddingModel,
     embeddingDim: row.embeddingDim,
     createdAt: row.createdAt.toISOString(),
+    relevanceFloorOverride: row.relevanceFloorOverride,
     documentCount: counts?.docs,
     chunkCount: counts?.chunks,
   };
@@ -187,6 +189,22 @@ export async function deleteBucket(id: string, tenantId: string): Promise<boolea
   // Drop the whole collection; ignore if it was never created.
   await dropBucketCollection(tenantId, id).catch(() => {});
   return true;
+}
+
+/**
+ * Update mutable bucket settings — currently just the per-bucket relevance-floor
+ * override (D-06). Tenant-scoped: an unknown or foreign bucket id resolves to
+ * null (→ 404 upstream) rather than throwing, mirroring getBucket/deleteBucket.
+ */
+export async function updateBucket(
+  id: string,
+  tenantId: string,
+  patch: { relevanceFloorOverride?: number | null },
+): Promise<Bucket | null> {
+  const existing = await db.bucket.findFirst({ where: { id, tenantId } });
+  if (!existing) return null;
+  await db.bucket.update({ where: { id }, data: patch });
+  return getBucket(id, tenantId);
 }
 
 type DocumentRow = {

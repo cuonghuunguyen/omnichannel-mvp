@@ -14,6 +14,8 @@ export type Bucket = {
   embeddingModel: string;
   embeddingDim: number;
   createdAt: string;
+  /** Optional per-bucket relevance-floor override (D-06); null = use the workspace default. */
+  relevanceFloorOverride: number | null;
   /** Optional counts, populated by list/detail endpoints. */
   documentCount?: number;
   chunkCount?: number;
