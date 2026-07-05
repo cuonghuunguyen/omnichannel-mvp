@@ -15,6 +15,7 @@ import { orchestrate } from "@/lib/chat/orchestrate";
 import { loadWebhookTarget } from "@/lib/webhooks/dispatch";
 import { authenticateTenant } from "@/lib/auth/api-key";
 import { toUiMessages, drainText, type OpenAiMessage } from "@/lib/openai/adapt";
+import { runIdempotent } from "@/lib/idempotency";
 
 export const openaiRouter: Router = Router();
 
@@ -101,21 +102,33 @@ openaiRouter.post("/chat/completions", async (req, res) => {
   const conversationId = conversation_id ?? user ?? `oai-${crypto.randomUUID()}`;
   const webhook = await loadWebhookTarget(tenantId);
 
-  const uiStream = orchestrate({
-    tenantId,
-    conversationId,
-    entryAgent: toAgentDTO(agent),
-    routingFlag: null,
-    webhook,
-    messages: uiMessages,
-    providerApiKey: res.locals.providerApiKey as string | undefined,
-    embeddingApiKey: res.locals.embeddingApiKey as string | undefined,
-  });
+  // Factory so a fresh orchestration stream is created only when a turn actually
+  // runs — the idempotent non-stream path (below) may reuse an in-flight result
+  // instead of starting a second turn (REPLY-DUP fix 1).
+  const makeStream = () =>
+    orchestrate({
+      tenantId,
+      conversationId,
+      entryAgent: toAgentDTO(agent),
+      routingFlag: null,
+      webhook,
+      messages: uiMessages,
+      providerApiKey: res.locals.providerApiKey as string | undefined,
+      embeddingApiKey: res.locals.embeddingApiKey as string | undefined,
+    });
+
+  // REPLY-DUP fix 1: when the client supplies an Idempotency-Key, a retried call
+  // (e.g. Laravel's TriggerAiTurnJob after its HTTP timeout) collapses onto the
+  // original in-flight/completed turn instead of dispatching a duplicate
+  // assistant_message webhook. Scoped by tenant to avoid cross-tenant collisions.
+  const idempotencyKeyHeader = req.header("Idempotency-Key");
+  const idempotencyKey = idempotencyKeyHeader ? `${tenantId}:${idempotencyKeyHeader}` : null;
 
   const id = `chatcmpl-${crypto.randomUUID()}`;
   const created = Math.floor(Date.now() / 1000);
 
   if (stream) {
+    const uiStream = makeStream();
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
@@ -159,7 +172,11 @@ openaiRouter.post("/chat/completions", async (req, res) => {
 
   let text: string;
   try {
-    text = await drainText(uiStream);
+    // REPLY-DUP fix 1: dedup the whole "orchestrate + drain to text" op by key so
+    // a retried request reuses the original turn (one webhook dispatch per key).
+    text = idempotencyKey
+      ? await runIdempotent(idempotencyKey, () => drainText(makeStream()))
+      : await drainText(makeStream());
   } catch (err) {
     console.error("[openai] completion error:", err);
     oaError(res, 500, "Error generating completion.", "server_error");
