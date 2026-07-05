@@ -781,6 +781,75 @@
           }
         }
       },
+      "patch": {
+        "operationId": "updateBucket",
+        "summary": "Update mutable bucket settings (relevance-floor override)",
+        "tags": [
+          "knowledge"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateBucketInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated bucket",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BucketResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Bucket not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "RAG store unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
       "delete": {
         "operationId": "deleteBucket",
         "summary": "Delete a bucket (cascades documents + chunks)",
@@ -810,6 +879,70 @@
           },
           "404": {
             "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "RAG store unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/knowledge/buckets/{id}/reindex": {
+      "post": {
+        "operationId": "reindexBucket",
+        "summary": "Re-encode BM25 sparse vectors + promote metadata payload keys in place",
+        "description": "Scroll-based, in-place migration of an existing bucket's collection: recomputes the bucket's corpus-wide avgChunkLength, re-encodes every point's sparse vector, and promotes metadata.tags/metadata.sourceType to indexed top-level payload keys. Dense vectors are untouched.",
+        "tags": [
+          "knowledge"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reindex complete",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "ok",
+                    "pointsUpdated"
+                  ],
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "pointsUpdated": {
+                      "type": "number"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Bucket not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -928,6 +1061,16 @@
               }
             }
           },
+          "409": {
+            "description": "Duplicate document content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "503": {
             "description": "RAG store unavailable",
             "content": {
@@ -1010,6 +1153,16 @@
           },
           "404": {
             "description": "Bucket not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Duplicate document content",
             "content": {
               "application/json": {
                 "schema": {
@@ -1958,12 +2111,44 @@
           },
           "model": {
             "type": "string"
+          },
+          "tags": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sourceType": {
+            "type": "string",
+            "enum": [
+              "text",
+              "file"
+            ]
+          },
+          "dateFrom": {
+            "type": "string"
+          },
+          "dateTo": {
+            "type": "string"
           }
         },
         "required": [
           "bucketIds",
           "query"
         ],
+        "additionalProperties": false
+      },
+      "UpdateBucketInput": {
+        "type": "object",
+        "properties": {
+          "relevanceFloorOverride": {
+            "nullable": true,
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        },
         "additionalProperties": false
       },
       "ChatUIMessageInput": {

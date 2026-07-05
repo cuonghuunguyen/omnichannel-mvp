@@ -362,6 +362,19 @@ export function buildOpenApiDocument() {
             "503": resp("RAG store unavailable", "ErrorResponse"),
           },
         },
+        patch: {
+          operationId: "updateBucket",
+          summary: "Update mutable bucket settings (relevance-floor override)",
+          tags: ["knowledge"],
+          parameters: [idParam],
+          requestBody: body("UpdateBucketInput"),
+          responses: {
+            "200": resp("Updated bucket", "BucketResponse"),
+            "400": resp("Validation error", "ErrorResponse"),
+            "404": resp("Bucket not found", "ErrorResponse"),
+            "503": resp("RAG store unavailable", "ErrorResponse"),
+          },
+        },
         delete: {
           operationId: "deleteBucket",
           summary: "Delete a bucket (cascades documents + chunks)",
@@ -370,6 +383,38 @@ export function buildOpenApiDocument() {
           responses: {
             "200": resp("Deleted", "OkResponse"),
             "404": resp("Not found", "ErrorResponse"),
+            "503": resp("RAG store unavailable", "ErrorResponse"),
+          },
+        },
+      },
+      "/knowledge/buckets/{id}/reindex": {
+        post: {
+          operationId: "reindexBucket",
+          summary: "Re-encode BM25 sparse vectors + promote metadata payload keys in place",
+          description:
+            "Scroll-based, in-place migration of an existing bucket's collection: " +
+            "recomputes the bucket's corpus-wide avgChunkLength, re-encodes every " +
+            "point's sparse vector, and promotes metadata.tags/metadata.sourceType " +
+            "to indexed top-level payload keys. Dense vectors are untouched.",
+          tags: ["knowledge"],
+          parameters: [idParam],
+          responses: {
+            "200": {
+              description: "Reindex complete",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    required: ["ok", "pointsUpdated"],
+                    properties: {
+                      ok: { type: "boolean" },
+                      pointsUpdated: { type: "number" },
+                    },
+                  },
+                },
+              },
+            },
+            "404": resp("Bucket not found", "ErrorResponse"),
             "503": resp("RAG store unavailable", "ErrorResponse"),
           },
         },
@@ -395,6 +440,7 @@ export function buildOpenApiDocument() {
             "201": resp("Ingested document", "DocumentResponse"),
             "400": resp("Validation error", "ErrorResponse"),
             "404": resp("Bucket not found", "ErrorResponse"),
+            "409": resp("Duplicate document content", "ErrorResponse"),
             "503": resp("RAG store unavailable", "ErrorResponse"),
           },
         },
@@ -430,6 +476,7 @@ export function buildOpenApiDocument() {
             "201": resp("Ingested document", "DocumentResponse"),
             "400": resp("Missing/invalid file or fields", "ErrorResponse"),
             "404": resp("Bucket not found", "ErrorResponse"),
+            "409": resp("Duplicate document content", "ErrorResponse"),
             "413": resp("File too large", "ErrorResponse"),
             "422": resp("No extractable text in file", "ErrorResponse"),
             "503": resp("RAG store unavailable", "ErrorResponse"),
