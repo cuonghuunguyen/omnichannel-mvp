@@ -14,7 +14,7 @@ import {
   DENSE,
   SPARSE,
 } from "@/lib/rag/store";
-import { sparseVector } from "@/lib/rag/sparse";
+import { sparseVector, tokenize } from "@/lib/rag/sparse";
 import {
   dimensionsFor,
   getEmbeddingProvider,
@@ -26,6 +26,9 @@ import { resolveAutoEmbedding } from "@/lib/rag/resolve";
 import { chunkDocument, type Chunk, type ChunkStrategy } from "@/lib/rag/chunk";
 import { extractFile, type ExtractedImage } from "@/lib/rag/extract";
 import { imageToText } from "@/lib/rag/extract/vision";
+import { contentHash } from "@/lib/rag/dedup";
+import { nextAvgChunkLength } from "@/lib/rag/ingest-stats";
+import { DuplicateDocumentError } from "@/lib/rag/errors";
 import type { Bucket, EmbeddingProviderId, RagDocument } from "@/lib/rag/types";
 
 /** An image to embed natively into a multimodal bucket, plus its display text. */
@@ -247,17 +250,31 @@ async function storeDocument(args: {
   /** Images embedded natively (multimodal buckets only). */
   images?: ImageUnit[];
   /**
+   * Raw pre-chunk text (the extracted document body). Hashed for exact-match
+   * content dedup within the bucket (D-01/D-02/D-03/D-04) before any embed call.
+   */
+  rawText: string;
+  /**
    * Inline BYOK embedding key (from X-Embedding-Key header). Passed into the
    * EmbeddingConfig so the tenant's own key is used for the embed call (D-02/D-04).
    * Never logged or persisted here.
    */
   embeddingApiKey?: string;
 }): Promise<RagDocument> {
-  const { bucket, tenantId, bucketId, title, source, metadata } = args;
+  const { bucket, tenantId, bucketId, title, source, metadata, rawText } = args;
   const chunks = args.chunks;
   const images = args.images ?? [];
   if (chunks.length === 0 && images.length === 0) {
     throw new Error("document has no content to ingest");
+  }
+
+  // Content-hash dedup: bucket-scoped, checked before any embed cost is
+  // incurred (D-01/D-02/D-03/D-04). The same content is still ingestable into
+  // a different bucket since the lookup is scoped by bucketId.
+  const hash = contentHash(rawText);
+  const existingDoc = await db.document.findFirst({ where: { bucketId, contentHash: hash } });
+  if (existingDoc) {
+    throw new DuplicateDocumentError(existingDoc.id, existingDoc.title);
   }
 
   const provider = getEmbeddingProvider({
@@ -297,6 +314,7 @@ async function storeDocument(args: {
       source,
       metadata: JSON.stringify(metadata),
       chunkCount: totalPoints,
+      contentHash: hash,
     },
   });
 
@@ -389,6 +407,7 @@ export async function ingestDocument(
     source: input.source?.trim() ?? "",
     metadata: { ...(input.metadata ?? {}), sourceType: "text", chunkStrategy: strategy },
     chunks,
+    rawText: input.content,
     embeddingApiKey: input.embeddingApiKey,
   });
 }
@@ -469,6 +488,7 @@ export async function ingestFile(
     },
     chunks,
     images,
+    rawText: extracted.text,
     embeddingApiKey: input.embeddingApiKey,
   });
 }
