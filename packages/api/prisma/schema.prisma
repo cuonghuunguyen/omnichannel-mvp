@@ -106,9 +106,29 @@ model Document {
   // Phase 45).
   contentHash String? @db.VarChar(64)
 
-  bucket Bucket @relation(fields: [bucketId], references: [id], onDelete: Cascade)
+  bucket   Bucket            @relation(fields: [bucketId], references: [id], onDelete: Cascade)
+  versions DocumentVersion[]
 
   @@index([bucketId])
   @@index([tenantId])
   @@unique([bucketId, contentHash])
+}
+
+/// A snapshot of a document's full raw content at a point in time (Phase 46
+/// D-08). The NEXT update diffs its new chunks against the latest version's
+/// content to determine which chunks actually changed (D-09/D-10), rather than
+/// always re-embedding the whole document. History is capped at
+/// VERSION_HISTORY_CAP (document-versioning.ts) — oldest rows beyond the cap
+/// are pruned by the update orchestration (Plan 46-03).
+model DocumentVersion {
+  id          String   @id @default(uuid())
+  documentId  String
+  content     String   @db.LongText // full raw content (can exceed 64KB TEXT limit)
+  contentHash String   @db.VarChar(64) // this version's SHA-256 hex, same format as Document.contentHash
+  chunkCount  Int      @default(0) // this version's resulting chunk count (D-07 delta indicator)
+  createdAt   DateTime @default(now())
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId, createdAt])
 }
