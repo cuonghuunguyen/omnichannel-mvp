@@ -1,10 +1,10 @@
 // Selectable models for the agent builder. `id` must match what resolveModel()
-// understands (deepseek-* -> DeepSeek, gemini-* -> Google, everything else ->
-// Anthropic).
+// understands (deepseek-* -> DeepSeek, gemini-* -> Google, gpt-* -> OpenAI,
+// everything else -> Anthropic).
 export type ModelOption = {
   id: string;
   label: string;
-  provider: "deepseek" | "anthropic" | "google";
+  provider: "deepseek" | "anthropic" | "google" | "openai";
 };
 
 export const MODEL_OPTIONS: ModelOption[] = [
@@ -22,6 +22,10 @@ export const MODEL_OPTIONS: ModelOption[] = [
   { id: "gemini-3-flash-preview", label: "Gemini 3 Flash", provider: "google" },
   { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", provider: "google" },
   { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "google" },
+  { id: "gpt-5", label: "GPT-5", provider: "openai" },
+  { id: "gpt-5-mini", label: "GPT-5 mini", provider: "openai" },
+  { id: "gpt-4o", label: "GPT-4o", provider: "openai" },
+  { id: "gpt-4.1", label: "GPT-4.1", provider: "openai" },
 ];
 
 export const DEFAULT_MODEL_ID = "deepseek-chat";

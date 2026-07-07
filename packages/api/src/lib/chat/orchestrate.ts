@@ -214,6 +214,7 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
             model: resolveModel(current.model, input.providerApiKey),
             system,
             temperature: current.temperature,
+            maxOutputTokens: current.maxTokens,
             messages: modelMessages,
             tools,
             // Bound the whole turn (incl. tool/MCP steps) so a hung provider or

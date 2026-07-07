@@ -22,6 +22,7 @@ function agentToInput(a: AgentDTO): AgentInput {
     systemPrompt: a.systemPrompt,
     model: a.model,
     temperature: a.temperature,
+    maxTokens: a.maxTokens,
     isRoutable: a.isRoutable,
     isDefault: a.isDefault,
     builtinTools: a.builtinTools,

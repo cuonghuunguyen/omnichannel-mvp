@@ -19,6 +19,7 @@ export type AgentDTO = {
   systemPrompt: string;
   model: string;
   temperature: number;
+  maxTokens: number;
   isRoutable: boolean;
   isDefault: boolean;
   builtinTools: BuiltinToolFlags;
@@ -40,6 +41,7 @@ export function toAgentDTO(agent: Agent): AgentDTO {
     systemPrompt: agent.systemPrompt,
     model: agent.model,
     temperature: agent.temperature,
+    maxTokens: agent.maxTokens,
     isRoutable: agent.isRoutable,
     isDefault: agent.isDefault,
     ...config,
@@ -55,6 +57,7 @@ export type AgentInput = Partial<{
   systemPrompt: string;
   model: string;
   temperature: number;
+  maxTokens: number;
   isRoutable: boolean;
   isDefault: boolean;
   builtinTools: BuiltinToolFlags;
@@ -77,6 +80,7 @@ export function toAgentData(input: AgentInput): Record<string, unknown> {
   if (input.systemPrompt !== undefined) data.systemPrompt = input.systemPrompt;
   if (input.model !== undefined) data.model = input.model;
   if (input.temperature !== undefined) data.temperature = input.temperature;
+  if (input.maxTokens !== undefined) data.maxTokens = input.maxTokens;
   if (input.isRoutable !== undefined) data.isRoutable = input.isRoutable;
   if (input.isDefault !== undefined) data.isDefault = input.isDefault;
   if (input.builtinTools !== undefined)

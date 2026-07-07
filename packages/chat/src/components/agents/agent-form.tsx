@@ -75,6 +75,7 @@ export function AgentForm({
   const [systemPrompt, setSystemPrompt] = useState(agent?.systemPrompt ?? "");
   const [model, setModel] = useState(agent?.model ?? DEFAULT_MODEL_ID);
   const [temperature, setTemperature] = useState(agent?.temperature ?? 0.7);
+  const [maxTokens, setMaxTokens] = useState(agent?.maxTokens ?? 1024);
   const [isRoutable, setIsRoutable] = useState(agent?.isRoutable ?? true);
   const [isDefault, setIsDefault] = useState(agent?.isDefault ?? false);
 
@@ -138,6 +139,7 @@ export function AgentForm({
     if (c.systemPrompt !== undefined) setSystemPrompt(c.systemPrompt);
     if (c.model !== undefined) setModel(c.model);
     if (c.temperature !== undefined) setTemperature(c.temperature);
+    if (c.maxTokens !== undefined) setMaxTokens(c.maxTokens);
     if (c.isRoutable !== undefined) setIsRoutable(c.isRoutable);
     if (c.isDefault !== undefined) setIsDefault(c.isDefault);
     if (c.builtinTools) {
@@ -262,6 +264,7 @@ export function AgentForm({
       systemPrompt,
       model,
       temperature,
+      maxTokens,
       isRoutable,
       isDefault,
       builtinTools: { sendMessage, deliverToAgent, deliverToHuman, endConversation },
@@ -355,6 +358,8 @@ export function AgentForm({
         setModel={setModel}
         temperature={temperature}
         setTemperature={setTemperature}
+        maxTokens={maxTokens}
+        setMaxTokens={setMaxTokens}
       />
 
       <RoutingSection
@@ -417,6 +422,8 @@ const BasicsSection = memo(function BasicsSection({
   setModel,
   temperature,
   setTemperature,
+  maxTokens,
+  setMaxTokens,
 }: {
   name: string;
   setName: React.Dispatch<React.SetStateAction<string>>;
@@ -428,6 +435,8 @@ const BasicsSection = memo(function BasicsSection({
   setModel: React.Dispatch<React.SetStateAction<string>>;
   temperature: number;
   setTemperature: React.Dispatch<React.SetStateAction<number>>;
+  maxTokens: number;
+  setMaxTokens: React.Dispatch<React.SetStateAction<number>>;
 }) {
   return (
     <section className="space-y-4">
@@ -486,6 +495,18 @@ const BasicsSection = memo(function BasicsSection({
             step={0.1}
             value={temperature}
             onChange={(e) => setTemperature(Number(e.target.value))}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="maxTokens">Max response tokens</Label>
+          <Input
+            id="maxTokens"
+            type="number"
+            min={1}
+            max={8192}
+            step={1}
+            value={maxTokens}
+            onChange={(e) => setMaxTokens(Number(e.target.value))}
           />
         </div>
       </div>

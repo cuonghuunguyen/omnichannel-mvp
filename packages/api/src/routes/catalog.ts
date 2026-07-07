@@ -1,7 +1,13 @@
 // Static provider and model catalog. Returns the full set of providers and
-// models this sidecar supports — chat (Anthropic, DeepSeek, Google Gemini) and
-// embedding (OpenAI, Voyage, Voyage-Multimodal, Local). No auth required; this
-// is metadata only — no keys or tenant data is included.
+// models this sidecar supports — chat (Anthropic, DeepSeek, Google Gemini,
+// OpenAI) and embedding (OpenAI, Voyage, Voyage-Multimodal, Local). No auth
+// required; this is metadata only — no keys or tenant data is included.
+//
+// NOTE: OpenAI appears twice by design — once as a chat provider (gpt-* models)
+// and once as an embedding provider (text-embedding-* models). Both share the
+// slug "openai": OpenAI's API uses ONE key for chat and embeddings, and the
+// workspace stores a single (workspace, "openai") key that serves both. The two
+// entries carry different `kind`s so the UI buckets them into the correct tab.
 import { Router } from "express";
 
 export const catalogRouter: Router = Router();
@@ -40,6 +46,19 @@ catalogRouter.get("/", (_req, res) => {
           { id: "gemini-3-flash-preview", displayName: "Gemini 3 Flash" },
           { id: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro" },
           { id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash" },
+        ],
+      },
+      {
+        id: "openai",
+        name: "OpenAI",
+        kind: "chat",
+        models: [
+          { id: "gpt-5", displayName: "GPT-5" },
+          { id: "gpt-5-mini", displayName: "GPT-5 mini" },
+          { id: "gpt-5-nano", displayName: "GPT-5 nano" },
+          { id: "gpt-4o", displayName: "GPT-4o" },
+          { id: "gpt-4o-mini", displayName: "GPT-4o mini" },
+          { id: "gpt-4.1", displayName: "GPT-4.1" },
         ],
       },
       {

@@ -47,6 +47,8 @@ model Agent {
   systemPrompt String   @db.Text // master prompt
   model        String   @default("deepseek-chat")
   temperature  Float    @default(0.7)
+  // Max tokens the model may generate per reply (maps to AI SDK maxOutputTokens).
+  maxTokens    Int      @default(1024)
   isRoutable   Boolean  @default(true) // can be a deliver_to_agent target
   isDefault    Boolean  @default(false) // entry agent for new conversations
   builtinTools String   @db.Text // JSON { sendMessage, deliverToAgent, deliverToHuman, endConversation: bool }

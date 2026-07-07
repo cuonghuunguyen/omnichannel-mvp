@@ -269,6 +269,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the catalog of supported providers and models
+         * @description Returns the static provider and model catalog for this sidecar. Includes all supported chat providers (Anthropic, DeepSeek) and embedding providers (OpenAI, Voyage, Local). No authentication required — the catalog contains provider/model metadata only, no secrets or tenant data.
+         */
+        get: operations["getCatalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/knowledge/search": {
         parameters: {
             query?: never;
@@ -280,6 +300,26 @@ export interface paths {
         put?: never;
         /** Run the full retrieval pipeline against one or more buckets */
         post: operations["searchKnowledge"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/knowledge/test-key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Validate a BYOK embedding key for a provider (no data stored)
+         * @description Runs one minimal embedding round-trip with the inline X-Embedding-Key header against the named provider. Nothing is persisted and the key is never logged. Used by the AI Config 'Test' button.
+         */
+        post: operations["testEmbeddingKey"];
         delete?: never;
         options?: never;
         head?: never;
@@ -335,6 +375,7 @@ export interface components {
             systemPrompt: string;
             model: string;
             temperature: number;
+            maxTokens: number;
             isRoutable: boolean;
             isDefault: boolean;
             builtinTools: {
@@ -384,6 +425,7 @@ export interface components {
             systemPrompt?: string;
             model?: string;
             temperature?: number;
+            maxTokens?: number;
             isRoutable?: boolean;
             isDefault?: boolean;
             builtinTools?: {
@@ -536,6 +578,7 @@ export interface components {
                 systemPrompt?: string;
                 model?: string;
                 temperature?: number;
+                maxTokens?: number;
                 isRoutable?: boolean;
                 isDefault?: boolean;
                 builtinTools?: {
@@ -593,6 +636,7 @@ export interface components {
                 systemPrompt: string;
                 model: string;
                 temperature: number;
+                maxTokens: number;
                 isRoutable: boolean;
                 isDefault: boolean;
                 builtinTools: {
@@ -645,6 +689,7 @@ export interface components {
                 systemPrompt: string;
                 model: string;
                 temperature: number;
+                maxTokens: number;
                 isRoutable: boolean;
                 isDefault: boolean;
                 builtinTools: {
@@ -1585,6 +1630,24 @@ export interface operations {
             };
         };
     };
+    getCatalog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Provider and model catalog */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     searchKnowledge: {
         parameters: {
             query?: never;
@@ -1618,6 +1681,54 @@ export interface operations {
             };
             /** @description RAG store unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    testEmbeddingKey: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * @description Embedding provider to validate the key against.
+                     * @enum {string}
+                     */
+                    provider: "openai" | "voyage" | "voyage-multimodal";
+                };
+            };
+        };
+        responses: {
+            /** @description Key accepted by the provider */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+            /** @description Missing key or unsupported provider */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Provider rejected the key or was unreachable */
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };
