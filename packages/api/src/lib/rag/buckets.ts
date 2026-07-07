@@ -29,6 +29,13 @@ import { imageToText } from "@/lib/rag/extract/vision";
 import { contentHash } from "@/lib/rag/dedup";
 import { nextAvgChunkLength } from "@/lib/rag/ingest-stats";
 import { DuplicateDocumentError } from "@/lib/rag/errors";
+import {
+  hashChunk,
+  diffChunks,
+  shouldFullReembed,
+  idsToPrune,
+  VERSION_HISTORY_CAP,
+} from "@/lib/rag/document-versioning";
 import type { Bucket, EmbeddingProviderId, RagDocument } from "@/lib/rag/types";
 
 /** An image to embed natively into a multimodal bucket, plus its display text. */
@@ -271,6 +278,70 @@ function embedInput(title: string, chunk: Chunk): string {
 }
 
 /**
+ * Build a single Qdrant chunk point (id, dense/sparse vectors, payload). Shared
+ * by storeDocument() and updateDocument() so the point payload shape stays in
+ * sync between create and update paths. `chunkContentHash` (Phase 46 D-09) is
+ * only spread onto the payload when provided — images have no meaningful
+ * chunk-diff hash (chunk-diff is content-only, D-03).
+ */
+function buildChunkPoint(args: {
+  tenantId: string;
+  bucketId: string;
+  documentId: string;
+  idx: number;
+  embedding: number[];
+  content: string;
+  title: string;
+  source: string;
+  metadata: Record<string, unknown>;
+  docContentHash: string;
+  ingestedAt: string;
+  avgDocLen: number | undefined;
+  chunkContentHash?: string;
+  extra?: Record<string, unknown>;
+}) {
+  const {
+    tenantId,
+    bucketId,
+    documentId,
+    idx,
+    embedding,
+    content,
+    title,
+    source,
+    metadata,
+    docContentHash,
+    ingestedAt,
+    avgDocLen,
+    chunkContentHash,
+    extra,
+  } = args;
+  const sparse = sparseVector(content, { mode: "document", avgDocLen });
+  return {
+    id: randomUUID(),
+    vector: { [DENSE]: embedding, ...(sparse ? { [SPARSE]: sparse } : {}) },
+    payload: {
+      tenant_id: tenantId,
+      bucket_id: bucketId,
+      document_id: documentId,
+      idx,
+      content,
+      metadata,
+      document_title: title,
+      document_source: source,
+      // Promoted top-level keys (D-13/D-16) so retrieval/filtering can query
+      // them directly without reaching into the nested `metadata` blob.
+      tags: (metadata.tags as string[] | undefined) ?? [],
+      source_type: (metadata.sourceType as string | undefined) ?? null,
+      ingested_at: ingestedAt,
+      content_hash: docContentHash,
+      ...(chunkContentHash ? { chunk_content_hash: chunkContentHash } : {}),
+      ...(extra ?? {}),
+    },
+  };
+}
+
+/**
  * Shared ingestion tail: embed chunks with the bucket's provider, persist the
  * document registry row, and upsert the chunk points into Qdrant. Both text and
  * file ingestion funnel through here so chunking/embedding/storage stay in sync.
@@ -373,42 +444,41 @@ async function storeDocument(args: {
 
   const ingestedAt = new Date().toISOString();
 
-  const point = (
-    idx: number,
-    embedding: number[],
-    content: string,
-    extra: Record<string, unknown>,
-  ) => {
-    const sparse = sparseVector(content, { mode: "document", avgDocLen });
-    return {
-      id: randomUUID(),
-      vector: { [DENSE]: embedding, ...(sparse ? { [SPARSE]: sparse } : {}) },
-      payload: {
-        tenant_id: tenantId,
-        bucket_id: bucketId,
-        document_id: docId,
-        idx,
-        content,
-        metadata,
-        document_title: title,
-        document_source: source,
-        // Promoted top-level keys (D-13/D-16) so retrieval/filtering can query
-        // them directly without reaching into the nested `metadata` blob.
-        tags: (metadata.tags as string[] | undefined) ?? [],
-        source_type: (metadata.sourceType as string | undefined) ?? null,
-        ingested_at: ingestedAt,
-        content_hash: hash,
-        ...extra,
-      },
-    };
-  };
-
   const points = [
     ...chunks.map((chunk, i) =>
-      point(i, textEmbeddings[i], chunk.content, chunk.context ? { context: chunk.context } : {}),
+      buildChunkPoint({
+        tenantId,
+        bucketId,
+        documentId: docId,
+        idx: i,
+        embedding: textEmbeddings[i],
+        content: chunk.content,
+        title,
+        source,
+        metadata,
+        docContentHash: hash,
+        ingestedAt,
+        avgDocLen,
+        chunkContentHash: hashChunk(chunk),
+        extra: chunk.context ? { context: chunk.context } : {},
+      }),
     ),
     ...imageEmbeddings.map((embedding, j) =>
-      point(chunks.length + j, embedding, images[j].text || "[image]", { modality: "image" }),
+      buildChunkPoint({
+        tenantId,
+        bucketId,
+        documentId: docId,
+        idx: chunks.length + j,
+        embedding,
+        content: images[j].text || "[image]",
+        title,
+        source,
+        metadata,
+        docContentHash: hash,
+        ingestedAt,
+        avgDocLen,
+        extra: { modality: "image" },
+      }),
     ),
   ];
   // MySQL + Qdrant can't share a transaction, so compensate: if the vector
@@ -560,4 +630,260 @@ export async function ingestFile(
     rawText: extracted.text,
     embeddingApiKey: input.embeddingApiKey,
   });
+}
+
+/**
+ * Update a document's content in place — the same document `id` is used
+ * throughout and returned unchanged (D-01); this function never creates a new
+ * `Document` row. Loads the document's latest `DocumentVersion` (Plan 46-01)
+ * and uses `shouldFullReembed()` to decide between:
+ *  - the full re-chunk/re-embed path (chunk_strategy changed, or no prior
+ *    version exists to diff against — D-12/OQ-1), or
+ *  - the real per-chunk diff path (`diffChunks()` — D-09/D-10/D-11): only
+ *    added/changed chunks are embedded, only removed chunks' points are
+ *    deleted.
+ * Writes a new `DocumentVersion` snapshot and prunes history beyond
+ * `VERSION_HISTORY_CAP` (D-05/D-06) on every successful call.
+ *
+ * Tenant-scoped: an unknown or foreign document id resolves to `null` (→ 404
+ * upstream), mirroring `deleteDocument()`'s convention exactly — never
+ * distinguish "not found" from "wrong tenant" (V4).
+ */
+export async function updateDocument(
+  id: string,
+  tenantId: string,
+  input: { content: string; chunkStrategy?: ChunkStrategy; embeddingApiKey?: string },
+): Promise<RagDocument | null> {
+  const doc = await db.document.findFirst({ where: { id, tenantId } });
+  if (!doc) return null;
+
+  const bucket = await getBucket(doc.bucketId, tenantId);
+  if (!bucket) return null;
+
+  const newHash = contentHash(input.content);
+
+  // D-04 cross-document collision check, EXCLUDING self (Pitfall 5): without
+  // `id: { not: id }` here, every update of unchanged content — including a
+  // document's own no-op re-save — would incorrectly self-collide against its
+  // own existing (bucketId, contentHash) row.
+  const collision = await db.document.findFirst({
+    where: { bucketId: doc.bucketId, contentHash: newHash, id: { not: id } },
+  });
+  if (collision) {
+    throw new DuplicateDocumentError(collision.id, collision.title);
+  }
+
+  let metadata: Record<string, unknown> = {};
+  try {
+    metadata = doc.metadata ? JSON.parse(doc.metadata) : {};
+  } catch {
+    metadata = {};
+  }
+  const recordedStrategy = ((metadata.chunkStrategy as string) ?? "auto") as Exclude<
+    ChunkStrategy,
+    "auto"
+  >;
+
+  const { chunks: newChunks, strategy: newResolvedStrategy } = chunkDocument(input.content, {
+    strategy: input.chunkStrategy,
+  });
+
+  const latestVersion = await db.documentVersion.findFirst({
+    where: { documentId: id },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const fullReembed = shouldFullReembed({
+    newResolvedStrategy,
+    recordedStrategy,
+    hasLatestVersion: latestVersion !== null,
+  });
+
+  const provider = getEmbeddingProvider({
+    provider: bucket.embeddingProvider,
+    model: bucket.embeddingModel,
+    ...(input.embeddingApiKey ? { apiKey: input.embeddingApiKey } : {}),
+  });
+
+  const bucketStats = await db.bucket.findUnique({
+    where: { id: doc.bucketId },
+    select: { avgChunkLength: true },
+  });
+  const prevAvgChunkLength = bucketStats?.avgChunkLength ?? 0;
+  const avgDocLen = prevAvgChunkLength > 0 ? prevAvgChunkLength : undefined;
+  // Deliberately NOT recomputed after this update: an update can both add and
+  // remove chunks, and nextAvgChunkLength() (ingest-stats.ts) has no removal
+  // path — unlike storeDocument()'s pure-accretion case. Bucket.avgChunkLength
+  // is left as-is here, a documented and accepted drift (RESEARCH Pitfall 1 /
+  // OQ-2). An operator can run the existing bucket Reindex action (Phase 45)
+  // to force a full recompute if the drift ever matters for a given bucket.
+
+  await ensureBucketCollection(tenantId, doc.bucketId, bucket.embeddingDim);
+
+  const ingestedAt = new Date().toISOString();
+  const collection = collectionName(tenantId, doc.bucketId);
+
+  try {
+    if (fullReembed) {
+      const embeddings = newChunks.length
+        ? await provider.embed(
+            newChunks.map((c) => embedInput(doc.title, c)),
+            "document",
+          )
+        : [];
+      await qdrantClient().delete(collection, {
+        wait: true,
+        filter: { must: [{ key: "document_id", match: { value: id } }] },
+      });
+      if (newChunks.length > 0) {
+        const points = newChunks.map((chunk, i) =>
+          buildChunkPoint({
+            tenantId,
+            bucketId: doc.bucketId,
+            documentId: id,
+            idx: i,
+            embedding: embeddings[i],
+            content: chunk.content,
+            title: doc.title,
+            source: doc.source,
+            metadata,
+            docContentHash: newHash,
+            ingestedAt,
+            avgDocLen,
+            chunkContentHash: hashChunk(chunk),
+            extra: chunk.context ? { context: chunk.context } : {},
+          }),
+        );
+        await qdrantClient().upsert(collection, { wait: true, points });
+      }
+    } else {
+      // Real diff path (D-09/D-10/D-11): re-chunk the previous version's raw
+      // content with its recorded strategy so the diff baseline reflects the
+      // exact same chunk boundaries it was originally stored under.
+      const { chunks: oldChunks } = chunkDocument(latestVersion!.content, {
+        strategy: recordedStrategy,
+      });
+      const { toEmbed, toDeleteHashes } = diffChunks(oldChunks, newChunks);
+
+      if (toDeleteHashes.length > 0) {
+        // D-11: removed chunks' points are deleted immediately, as part of the
+        // same operation — not deferred to version-pruning time.
+        await qdrantClient().delete(collection, {
+          wait: true,
+          filter: {
+            must: [
+              { key: "document_id", match: { value: id } },
+              { key: "chunk_content_hash", match: { any: toDeleteHashes } },
+            ],
+          },
+        });
+      }
+      if (toEmbed.length > 0) {
+        const embeddings = await provider.embed(
+          toEmbed.map((c) => embedInput(doc.title, c)),
+          "document",
+        );
+        const points = toEmbed.map((chunk, i) =>
+          buildChunkPoint({
+            tenantId,
+            bucketId: doc.bucketId,
+            documentId: id,
+            idx: i,
+            embedding: embeddings[i],
+            content: chunk.content,
+            title: doc.title,
+            source: doc.source,
+            metadata,
+            docContentHash: newHash,
+            ingestedAt,
+            avgDocLen,
+            chunkContentHash: hashChunk(chunk),
+            extra: chunk.context ? { context: chunk.context } : {},
+          }),
+        );
+        await qdrantClient().upsert(collection, { wait: true, points });
+      }
+    }
+  } catch (err) {
+    // MySQL + Qdrant can't share a transaction. Unlike storeDocument()'s
+    // create-only rollback (which can cleanly delete the just-created Document
+    // row on failure), an in-place update has no clean "previous state" to
+    // restore to within this function if the Qdrant call fails partway through
+    // — this is a documented, accepted limitation (race-condition / no-shared-
+    // transaction threat — see the plan's threat register T-46-08), not
+    // silently ignored.
+    console.error("updateDocument: Qdrant mutation failed", err);
+    throw err;
+  }
+
+  const updatedMetadata = { ...metadata, chunkStrategy: newResolvedStrategy };
+
+  // Updates the EXISTING row by its unchanged id — D-01, never an insert.
+  await db.document.update({
+    where: { id },
+    data: {
+      contentHash: newHash,
+      chunkCount: newChunks.length,
+      metadata: JSON.stringify(updatedMetadata),
+    },
+  });
+
+  await db.documentVersion.create({
+    data: {
+      documentId: id,
+      content: input.content,
+      contentHash: newHash,
+      chunkCount: newChunks.length,
+    },
+  });
+
+  // Prune version history beyond VERSION_HISTORY_CAP (D-05/D-06) — runs
+  // unconditionally at the end of every successful update, not a best-effort
+  // background step (T-46-07).
+  const versionIds = (
+    await db.documentVersion.findMany({
+      where: { documentId: id },
+      orderBy: { createdAt: "desc" },
+      select: { id: true },
+    })
+  ).map((v) => v.id);
+  const staleIds = idsToPrune(versionIds, VERSION_HISTORY_CAP);
+  if (staleIds.length > 0) {
+    await db.documentVersion.deleteMany({ where: { id: { in: staleIds } } });
+  }
+
+  return {
+    id: doc.id,
+    bucketId: doc.bucketId,
+    title: doc.title,
+    source: doc.source,
+    metadata: updatedMetadata,
+    createdAt: doc.createdAt.toISOString(),
+    chunkCount: newChunks.length,
+  };
+}
+
+/**
+ * List a document's version history (D-07) — a simple, read-only list, no
+ * rollback. Deliberately excludes `content`/`contentHash` from the returned
+ * shape: there is no reason to ship potentially large raw-text blobs to the
+ * browser for a decorative version list. Tenant-scoped like every other
+ * document read in this file.
+ */
+export async function listDocumentVersions(
+  documentId: string,
+  tenantId: string,
+): Promise<{ id: string; createdAt: string; chunkCount: number }[] | null> {
+  const doc = await db.document.findFirst({ where: { id: documentId, tenantId } });
+  if (!doc) return null;
+  const versions = await db.documentVersion.findMany({
+    where: { documentId },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, createdAt: true, chunkCount: true },
+  });
+  return versions.map((v) => ({
+    id: v.id,
+    createdAt: v.createdAt.toISOString(),
+    chunkCount: v.chunkCount,
+  }));
 }
