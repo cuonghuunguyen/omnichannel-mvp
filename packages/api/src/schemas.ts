@@ -171,6 +171,16 @@ export const IngestFileInput = z.object({
   chunkStrategy: ChunkStrategy.optional(),
 });
 
+/**
+ * Update-document body (Phase 46, D-03): content-only — title/source are
+ * immutable after creation, and the document id comes from the URL, never the
+ * body, since D-01 means the id is never a caller-supplied field.
+ */
+export const UpdateDocumentInput = z.object({
+  content: z.string(),
+  chunkStrategy: ChunkStrategy.optional(),
+});
+
 export const SearchInput = z
   .object({
     bucketIds: z.array(z.string()),
@@ -273,6 +283,7 @@ export const components = {
   ChunkStrategy,
   IngestDocumentInput,
   IngestFileInput,
+  UpdateDocumentInput,
   SearchInput,
   UpdateBucketInput,
   ChatUIMessageInput,

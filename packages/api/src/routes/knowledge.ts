@@ -9,7 +9,9 @@ import {
   ingestFile,
   listBuckets,
   listDocuments,
+  listDocumentVersions,
   updateBucket,
+  updateDocument,
 } from "@/lib/rag/buckets";
 import { retrieve } from "@/lib/rag/retrieve";
 import { reindexBucket } from "@/lib/rag/reindex";
@@ -24,6 +26,7 @@ import {
   IngestFileInput,
   SearchInput,
   UpdateBucketInput,
+  UpdateDocumentInput,
 } from "@/schemas";
 
 export const knowledgeRouter: Router = Router();
@@ -281,6 +284,56 @@ knowledgeRouter.delete("/documents/:id", async (req, res) => {
       return;
     }
     res.json({ ok: true });
+  } catch (err) {
+    res.status(503).json({ error: ragError(err) });
+  }
+});
+
+/**
+ * Update a document's content in place (Phase 46 D-01/D-09): re-chunks and
+ * re-embeds only what changed, deletes only removed chunk points. The same
+ * document id is used and returned throughout.
+ */
+knowledgeRouter.patch("/documents/:id", async (req, res) => {
+  const tenantId = String(res.locals.tenantId);
+  const parsed = UpdateDocumentInput.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "invalid body" });
+    return;
+  }
+  const embeddingApiKey = res.locals.embeddingApiKey as string | undefined;
+  try {
+    const document = await updateDocument(req.params.id, tenantId, {
+      content: parsed.data.content,
+      chunkStrategy: parsed.data.chunkStrategy,
+      embeddingApiKey,
+    });
+    if (!document) {
+      res.status(404).json({ error: "not found" });
+      return;
+    }
+    res.json({ document });
+  } catch (err) {
+    if (err instanceof DuplicateDocumentError) {
+      res.status(409).json({
+        error: `duplicate content: matches existing document '${err.existingTitle}' (${err.existingId})`,
+      });
+      return;
+    }
+    res.status(503).json({ error: ragError(err) });
+  }
+});
+
+/** List a document's version history (D-07) — read-only, no rollback. */
+knowledgeRouter.get("/documents/:id/versions", async (req, res) => {
+  const tenantId = String(res.locals.tenantId);
+  try {
+    const versions = await listDocumentVersions(req.params.id, tenantId);
+    if (!versions) {
+      res.status(404).json({ error: "not found" });
+      return;
+    }
+    res.json({ versions });
   } catch (err) {
     res.status(503).json({ error: ragError(err) });
   }
