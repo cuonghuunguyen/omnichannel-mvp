@@ -14,3 +14,10 @@ allowBuilds:
   sharp: false                # markitdown image path — not built
   tesseract.js: false         # markitdown OCR path — not built
   unrs-resolver: false
+
+# Pin transitive deps to versions old enough to clear the container's pnpm
+# `minimumReleaseAge` supply-chain gate. pino-pretty (dev-only log formatter)
+# pulls fast-copy; 4.0.4 (2026-07-08) is too fresh for the age cutoff, so we
+# hold it at the already-vetted 4.0.3 (2026-04-10). Bump once 4.0.4 has aged.
+overrides:
+  fast-copy: 4.0.3
