@@ -12,6 +12,7 @@
 //     in-repo chat-service integration with no change on its side.
 import crypto from "node:crypto";
 import { db } from "@/lib/db";
+import { logger } from "@/lib/logger";
 
 /** A conversation mutation the loop asks the subscriber to apply + broadcast. */
 export type ConversationEvent =
@@ -60,7 +61,7 @@ export function resolveWebhookTarget(
     // misconfiguration: skip delivery and log, rather than silently signing with "".
     const secret = tenant.webhookSecret?.trim();
     if (!secret) {
-      console.error(
+      logger.error(
         "[webhook] tenant has a webhookUrl but no webhookSecret configured — refusing to sign with an empty secret; dropping delivery",
       );
       return null;
@@ -111,13 +112,13 @@ async function postWithRetry(
       const res = await fetch(url, { method: "POST", headers: init.headers, body: init.body });
       if (res.ok) return true;
       const transient = res.status >= 500;
-      console.error(
-        `[webhook] ${eventType} failed (${res.status}) attempt ${attempt}/${attempts}:`,
-        await res.text().catch(() => ""),
+      logger.error(
+        { status: res.status, attempt, attempts, body: await res.text().catch(() => "") },
+        `[webhook] ${eventType} failed (${res.status}) attempt ${attempt}/${attempts}`,
       );
       if (!transient) return false; // 4xx: permanent — do not retry
     } catch (err) {
-      console.error(`[webhook] ${eventType} request failed attempt ${attempt}/${attempts}:`, err);
+      logger.error({ err }, `[webhook] ${eventType} request failed attempt ${attempt}/${attempts}`);
     }
     if (attempt < attempts) {
       await sleep(backoff[Math.min(attempt - 1, backoff.length - 1)]);
@@ -165,11 +166,12 @@ export async function dispatchEvent(
     const attempts = event.type === "assistant_message" ? 4 : 1;
     const delivered = await postWithRetry(url, { headers, body }, event.type, attempts);
     if (!delivered && event.type === "assistant_message") {
-      console.error(
+      logger.error(
+        { conversationId, attempts },
         `[webhook] assistant_message permanently undelivered after ${attempts} attempts for conversation ${conversationId} — the customer's reply was lost`,
       );
     }
   } catch (err) {
-    console.error(`[webhook] ${event.type} request failed:`, err);
+    logger.error({ err }, `[webhook] ${event.type} request failed`);
   }
 }

@@ -6,6 +6,7 @@
 import { generateText } from "ai";
 import { resolveModel } from "@/lib/models";
 import type { ExtractedImage } from "@/lib/rag/extract/index";
+import { logger } from "@/lib/logger";
 
 /** Vision model for captioning; Sonnet is vision-capable and cheap enough here. */
 const VISION_MODEL = process.env.VISION_MODEL?.trim() || "claude-sonnet-4-6";
@@ -39,7 +40,7 @@ export async function imageToText(image: ExtractedImage): Promise<string> {
     });
     return text.trim();
   } catch (err) {
-    console.error("[rag] image captioning failed:", err);
+    logger.error({ err }, "[rag] image captioning failed");
     return "";
   }
 }

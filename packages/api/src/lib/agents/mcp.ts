@@ -2,6 +2,7 @@ import { createMCPClient, type MCPClient } from "@ai-sdk/mcp";
 import type { ToolSet } from "ai";
 import type { McpServerDef } from "@/lib/types";
 import { TIMEOUTS, withTimeout } from "@/lib/resilience";
+import { logger } from "@/lib/logger";
 
 export type McpConnection = {
   /** Tools discovered across all reachable servers, merged. */
@@ -37,9 +38,9 @@ export async function connectMcpServers(
       clients.push(client);
       tools = { ...tools, ...(await withTimeout(client.tools(), TIMEOUTS.mcpMs, label)) };
     } catch (err) {
-      console.error(
-        `MCP connect failed for ${server.name || server.url}:`,
-        err instanceof Error ? err.message : err,
+      logger.error(
+        { err: err instanceof Error ? err.message : err },
+        `MCP connect failed for ${server.name || server.url}`,
       );
     }
   }

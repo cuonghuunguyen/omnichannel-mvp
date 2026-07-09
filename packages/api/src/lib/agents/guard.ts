@@ -8,6 +8,7 @@ import { resolveModel } from "@/lib/models";
 import { textFromParts } from "@/lib/agents/messages";
 import type { GuardrailsConfig } from "@/lib/types";
 import type { ChatUIMessage } from "@/lib/agents/ui-messages";
+import { logger } from "@/lib/logger";
 
 export const DEFAULT_REFUSAL =
   "Sorry, I can only help with topics within this assistant's scope, so I can't help with that. " +
@@ -109,7 +110,7 @@ export async function runInputGuard(
     return parseVerdict(text);
   } catch (err) {
     // Fail-open: never let a guard outage block legitimate users.
-    console.error("[guard] classifier failed, allowing turn:", err);
+    logger.error({ err }, "[guard] classifier failed, allowing turn");
     return null;
   }
 }

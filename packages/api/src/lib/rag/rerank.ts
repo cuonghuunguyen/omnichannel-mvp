@@ -6,6 +6,7 @@ import { generateText } from "ai";
 import { resolveModel } from "@/lib/models";
 import { TIMEOUTS } from "@/lib/resilience";
 import type { RetrievedChunk } from "@/lib/rag/types";
+import { logger } from "@/lib/logger";
 
 export type Reranker = (
   query: string,
@@ -48,7 +49,7 @@ export function llmReranker(pipelineModel: string, providerApiKey?: string): Rer
         .sort((a, b) => b.score - a.score)
         .slice(0, topK);
     } catch (err) {
-      console.error("[rag] rerank failed, keeping fusion order:", err);
+      logger.error({ err }, "[rag] rerank failed, keeping fusion order");
       return candidates.slice(0, topK);
     }
   };

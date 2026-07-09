@@ -6,6 +6,7 @@
 // so one tenant can never see or search another's knowledge.
 import { randomUUID } from "node:crypto";
 import { db } from "@/lib/db";
+import { logger } from "@/lib/logger";
 import {
   collectionName,
   dropBucketCollection,
@@ -812,7 +813,7 @@ export async function updateDocument(
     // — this is a documented, accepted limitation (race-condition / no-shared-
     // transaction threat — see the plan's threat register T-46-08), not
     // silently ignored.
-    console.error("updateDocument: Qdrant mutation failed", err);
+    logger.error({ err }, "updateDocument: Qdrant mutation failed");
     throw err;
   }
 

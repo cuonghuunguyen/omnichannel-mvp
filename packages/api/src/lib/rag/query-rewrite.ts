@@ -6,6 +6,7 @@
 import { generateText } from "ai";
 import { resolveModel } from "@/lib/models";
 import { TIMEOUTS } from "@/lib/resilience";
+import { logger } from "@/lib/logger";
 
 export type RewrittenQuery = {
   /** Standalone search query used for embedding + full-text search. */
@@ -48,7 +49,7 @@ export async function rewriteQuery(
       : [];
     return { query, keywords };
   } catch (err) {
-    console.error("[rag] query rewrite failed, using raw query:", err);
+    logger.error({ err }, "[rag] query rewrite failed, using raw query");
     return fallback;
   }
 }

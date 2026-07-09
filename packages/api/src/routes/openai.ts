@@ -16,6 +16,7 @@ import { loadWebhookTarget } from "@/lib/webhooks/dispatch";
 import { authenticateTenant } from "@/lib/auth/api-key";
 import { toUiMessages, drainText, type OpenAiMessage } from "@/lib/openai/adapt";
 import { runIdempotent } from "@/lib/idempotency";
+import { logger } from "@/lib/logger";
 
 export const openaiRouter: Router = Router();
 
@@ -152,7 +153,7 @@ openaiRouter.post("/chat/completions", async (req, res) => {
       // only partially dispatched the assistant_message webhook). Emit an explicit error
       // signal: an OpenAI error chunk plus a finish_reason: "error" terminal chunk, so the
       // client (and any OpenAI-protocol consumer) can detect the truncated/failed turn.
-      console.error("[openai] stream error:", err);
+      logger.error({ err }, "[openai] stream error");
       send({
         id,
         object: "chat.completion.chunk",
@@ -178,7 +179,7 @@ openaiRouter.post("/chat/completions", async (req, res) => {
       ? await runIdempotent(idempotencyKey, () => drainText(makeStream()))
       : await drainText(makeStream());
   } catch (err) {
-    console.error("[openai] completion error:", err);
+    logger.error({ err }, "[openai] completion error");
     oaError(res, 500, "Error generating completion.", "server_error");
     return;
   }

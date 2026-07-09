@@ -17,6 +17,7 @@ import { rewriteQuery } from "@/lib/rag/query-rewrite";
 import { llmReranker } from "@/lib/rag/rerank";
 import { applyRelevanceFloor, buildRetrievalFilter } from "@/lib/rag/retrieve-filter";
 import type { RetrievedChunk } from "@/lib/rag/types";
+import { logger } from "@/lib/logger";
 
 /** Candidates pulled per prefetch arm (dense / sparse) before fusion. */
 const CANDIDATES_PER_LIST = 20;
@@ -155,7 +156,7 @@ export async function retrieve(opts: RetrieveOptions): Promise<RetrievedChunk[]>
       } catch (err) {
         // A missing collection (bucket with no ingested docs yet) or transient
         // error shouldn't fail the whole search — just contribute no hits.
-        console.error(`[rag] search failed for bucket ${bucketId}:`, err);
+        logger.error({ err, bucketId }, `[rag] search failed for bucket ${bucketId}`);
         return [] as RetrievedChunk[];
       }
     }),
