@@ -18,7 +18,7 @@ import { toAgentDTO, type AgentDTO } from "@/lib/agent-io";
 import { textFromParts, recentTranscript } from "@/lib/agents/messages";
 import { buildAgentRuntime, loadRoutableAgents } from "@/lib/agents/runtime";
 import { HANDOFF_TOOL_NAMES, type HandoffSignal } from "@/lib/agents/tools";
-import { runInputGuard, DEFAULT_REFUSAL } from "@/lib/agents/guard";
+import { runInputGuard, resolveRefusalText } from "@/lib/agents/guard";
 import { withUniqueBlockIds } from "@/lib/agents/stream-ids";
 import { evaluateHandoffRules } from "@/lib/agents/handoff";
 import { conversationCallbacks } from "@/lib/chat/callbacks";
@@ -127,7 +127,15 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
         input.providerApiKey,
       );
       if (verdict?.blocked) {
-        const refusalText = guardrails.refusal?.trim() || DEFAULT_REFUSAL;
+        const refusalText = await resolveRefusalText({
+          agentModel: entryAgent.model,
+          agentName: entryAgent.name,
+          systemPrompt: entryAgent.systemPrompt,
+          guardrails,
+          verdict,
+          messages,
+          providerApiKey: input.providerApiKey,
+        });
         const id = `guard-${crypto.randomUUID()}`;
         writer.write({
           type: "start",
