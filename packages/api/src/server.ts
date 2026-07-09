@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { randomUUID } from "node:crypto";
 import express, {
   type NextFunction,
   type Request,
@@ -17,8 +18,10 @@ import { db } from "@/lib/db";
 import { SHUTDOWN_TIMEOUT_MS } from "@/lib/resilience";
 import { stripProviderKey } from "@/middleware/strip-provider-key";
 import { stripEmbeddingKey } from "@/middleware/strip-embedding-key";
+import { pinoHttp } from "pino-http";
 import { validateEnv } from "@/lib/env";
 import { checkMysql, checkQdrant } from "@/lib/health";
+import { logger } from "@/lib/logger";
 
 // Fail fast on a misconfigured environment before binding the port.
 validateEnv();
@@ -33,6 +36,17 @@ app.use(stripProviderKey);
 // Strip X-Embedding-Key BEFORE any logger or body-parser so the raw BYOK
 // embedding key is never captured in access logs or request dumps (D-02 / T-37-02-01).
 app.use(stripEmbeddingKey);
+
+// Access-log every request. Registered AFTER both key-strip middlewares
+// above so pino-http never observes a raw X-Provider-Key/X-Embedding-Key
+// header (T-kxl-01); the shared `logger`'s `redact` config is also inherited
+// as defense-in-depth. No request/response body logging is enabled.
+app.use(
+  pinoHttp({
+    logger,
+    genReqId: (req) => (req.headers["x-request-id"] as string | undefined) ?? randomUUID(),
+  }),
+);
 
 // The chat service's browser admin UI calls this API cross-origin; allow it.
 // WR-02: fail closed. CORS_ORIGIN is an explicit allowlist of origins; when unset we
@@ -112,15 +126,16 @@ app.use("/catalog", catalogRouter);
 
 // Last-resort error handler (Express 5 forwards async rejections here).
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-  console.error("[api] unhandled error:", err);
+  logger.error({ err }, "[api] unhandled error");
   if (!res.headersSent) res.status(500).json({ error: "internal error" });
 });
 
 const port = Number(process.env.API_PORT ?? process.env.PORT ?? 4000);
 const server = app.listen(port, () => {
-  console.log(`AI Config API listening on http://localhost:${port}`);
-  console.log(`  docs:    http://localhost:${port}/docs`);
-  console.log(`  openapi: http://localhost:${port}/openapi.json`);
+  logger.info(
+    { port, docsUrl: `http://localhost:${port}/docs`, openapiUrl: `http://localhost:${port}/openapi.json` },
+    `AI Config API listening on http://localhost:${port}`,
+  );
 });
 
 // Graceful shutdown: on deploy/evict, stop accepting connections, let in-flight
@@ -130,10 +145,10 @@ let shuttingDown = false;
 async function shutdown(signal: string): Promise<void> {
   if (shuttingDown) return; // ignore a second signal mid-drain
   shuttingDown = true;
-  console.log(`[api] ${signal} received — shutting down`);
+  logger.info(`[api] ${signal} received — shutting down`);
 
   const force = setTimeout(() => {
-    console.error(`[api] drain exceeded ${SHUTDOWN_TIMEOUT_MS}ms — forcing exit`);
+    logger.error(`[api] drain exceeded ${SHUTDOWN_TIMEOUT_MS}ms — forcing exit`);
     process.exit(1);
   }, SHUTDOWN_TIMEOUT_MS);
   force.unref();
@@ -142,10 +157,10 @@ async function shutdown(signal: string): Promise<void> {
     try {
       await db.$disconnect();
     } catch (err) {
-      console.error("[api] error disconnecting db:", err);
+      logger.error({ err }, "[api] error disconnecting db");
     }
     clearTimeout(force);
-    console.log("[api] shutdown complete");
+    logger.info("[api] shutdown complete");
     process.exit(0);
   });
 }

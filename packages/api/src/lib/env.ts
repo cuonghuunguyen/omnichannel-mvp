@@ -8,6 +8,7 @@
 // zod, and FAILS FAST with a single readable report so a misconfigured deploy
 // never reaches "listening".
 import { z } from "zod";
+import { logger } from "@/lib/logger";
 
 /** A DSN that parses as a URL with the expected protocol(s). */
 const urlWithProtocol = (protocols: string[], label: string) =>
@@ -96,10 +97,10 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): AppEnv {
     const issues = result.error.issues
       .map((i) => `  - ${i.path.join(".") || "(root)"}: ${i.message}`)
       .join("\n");
-    console.error(`[api] invalid environment configuration:\n${issues}`);
+    logger.error(`[api] invalid environment configuration:\n${issues}`);
     process.exit(1);
   }
   const { NODE_ENV, EMBEDDING_PROVIDER } = result.data;
-  console.log(`[api] env validated (NODE_ENV=${NODE_ENV}, embeddings=${EMBEDDING_PROVIDER})`);
+  logger.info(`[api] env validated (NODE_ENV=${NODE_ENV}, embeddings=${EMBEDDING_PROVIDER})`);
   return result.data;
 }
