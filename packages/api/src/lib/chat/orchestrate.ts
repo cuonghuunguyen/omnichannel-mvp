@@ -24,6 +24,7 @@ import { evaluateHandoffRules } from "@/lib/agents/handoff";
 import { conversationCallbacks } from "@/lib/chat/callbacks";
 import { dispatchEvent, type WebhookTarget } from "@/lib/webhooks/dispatch";
 import type { ChatUIMessage } from "@/lib/agents/ui-messages";
+import { logger } from "@/lib/logger";
 
 export type OrchestrateInput = {
   /** Tenant the conversation belongs to — scopes every agent + knowledge read. */
@@ -105,6 +106,19 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
   return createUIMessageStream<ChatUIMessage>({
     originalMessages: messages,
     execute: async ({ writer }) => {
+      // Turn-level timing: guard + each hop are all sequential and on the
+      // critical path, so their sum is the latency the user actually waits for.
+      const tTurnStart = Date.now();
+      const hopTimings: {
+        hop: number;
+        agent: string;
+        model: string;
+        ms: number;
+        buildMs: number;
+        genMs: number;
+        steps: number;
+        toolCalls: number;
+      }[] = [];
       // Input guardrail: classify the latest message against the *system's*
       // reachable scope, not just the entry agent's. Other routable agents'
       // purposes widen the boundary, so an off-agent-but-in-system request is
@@ -118,6 +132,7 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
         .map((a) => `- ${a.name}: ${a.description}`)
         .filter((line) => line.trim().length > 0)
         .join("\n");
+      const tGuard = Date.now();
       const verdict = await runInputGuard(
         entryAgent.model,
         guardrails,
@@ -126,6 +141,7 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
         tenant?.guardModel,
         input.providerApiKey,
       );
+      const guardMs = Date.now() - tGuard;
       if (verdict?.blocked) {
         const refusalText = await resolveRefusalText({
           agentModel: entryAgent.model,
@@ -172,6 +188,10 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
           reason: verdict.reason,
           offerHuman: true,
         });
+        logger.info(
+          { conversationId, guardMs, blocked: true, totalMs: Date.now() - tTurnStart },
+          "[turn.timing] blocked by guardrail",
+        );
         return;
       }
 
@@ -183,6 +203,7 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
       const recentContext = recentTranscript(messages);
 
       for (let hop = 0; hop < MAX_HOPS; hop++) {
+        const tHop = Date.now();
         let handoff: HandoffSignal | null = null;
         const sent: string[] = [];
         const knowledgeHits: {
@@ -213,6 +234,10 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
           input.embeddingApiKey,
           input.providerApiKey,
         );
+        // Split the hop: time spent constructing the runtime (routable load +
+        // tool/MCP setup) vs. the actual model generation below.
+        const buildMs = Date.now() - tHop;
+        const tGen = Date.now();
 
         let text: string;
         let aiDetail: { toolCalls: { name: string; summary: string }[]; reasoning?: string } | undefined;
@@ -278,6 +303,16 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
             toolCalls.length > 0 || reasoningText
               ? { toolCalls, ...(reasoningText ? { reasoning: reasoningText } : {}) }
               : undefined;
+          hopTimings.push({
+            hop,
+            agent: agentForMeta.name,
+            model: agentForMeta.model,
+            ms: Date.now() - tHop,
+            buildMs,
+            genMs: Date.now() - tGen,
+            steps: steps.length,
+            toolCalls: toolCalls.length,
+          });
         } finally {
           // Close this hop's MCP clients once its stream is fully consumed.
           await closeMcp();
@@ -370,6 +405,21 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
 
       // Close the single assistant message we streamed across all hops.
       writer.write({ type: "finish" });
+
+      // One structured line per turn: guard cost + per-hop cost + total. This is
+      // the top-level breakdown of the /v1/chat/completions latency — read it
+      // alongside the "[rag.timing]" lines (emitted per search_knowledge call) to
+      // see whether a slow turn is the guard, agent tool-looping, or retrieval.
+      logger.info(
+        {
+          conversationId,
+          guardMs,
+          hops: hopTimings,
+          hopCount: hopTimings.length,
+          totalMs: Date.now() - tTurnStart,
+        },
+        "[turn.timing] completed",
+      );
     },
     onError: (error) =>
       process.env.NODE_ENV === "production"

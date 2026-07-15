@@ -25,11 +25,25 @@
 #
 # Schema migrations are applied out-of-band: `prisma migrate deploy` against the
 # `agents` database (run inside the api container).
+#
+# Log rotation: the default json-file driver is UNBOUNDED and will grow until it
+# fills the disk (the per-10s /health/ready polling alone produces a steady
+# stream). Cap every service at 10MB × 5 files = 50MB max, auto-rotated. Applied
+# via the &default-logging anchor below. NOTE: logging config is fixed at
+# container-creation time — `docker compose up -d` (recreate) is required for a
+# change here to take effect; restarting an existing container is not enough.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   qdrant:
     image: qdrant/qdrant:latest
     container_name: agent-routing-qdrant
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "${FORWARD_QDRANT_PORT:-6333}:6333" # REST
       - "${FORWARD_QDRANT_GRPC_PORT:-6334}:6334" # gRPC
@@ -48,6 +62,7 @@ services:
       dockerfile: packages/api/Dockerfile
     container_name: agent-routing-api
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       qdrant:
         condition: service_healthy

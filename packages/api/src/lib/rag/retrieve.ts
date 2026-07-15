@@ -88,12 +88,18 @@ export async function retrieve(opts: RetrieveOptions): Promise<RetrievedChunk[]>
   if (bucketIds.length === 0) return [];
 
   const topK = opts.topK ?? 5;
+
+  // Per-stage timing so we can see where a slow retrieval spends its time
+  // (rewrite LLM vs. embed vs. Qdrant search vs. rerank LLM). All four stages
+  // are sequential, so their sum is on the turn's critical path.
+  const tStart = Date.now();
   const { query, keywords } = await rewriteQuery(
     opts.pipelineModel,
     opts.query,
     opts.context,
     opts.providerApiKey,
   );
+  const rewriteMs = Date.now() - tStart;
   // Sparse arm searches on the query plus expansion keywords for wider recall.
   // Query-mode: raw counts, no BM25 saturation/length-norm (D-09 asymmetry —
   // saturating query-side TF the same way as document-side is an accuracy
@@ -103,6 +109,7 @@ export async function retrieve(opts: RetrieveOptions): Promise<RetrievedChunk[]>
   // Embed the query once per distinct bucket embedding config. Scoped by tenant:
   // buckets outside the tenant return no config and are skipped below.
   // Pass the inline BYOK embedding key so the tenant's own key is used (D-04/KB-05).
+  const tEmbed = Date.now();
   const configs = await getBucketEmbeddingConfigs(bucketIds, opts.tenantId, opts.embeddingApiKey);
   const embeddingByKey = new Map<string, number[]>();
   const keyOf = (c: EmbeddingConfig) => `${c.provider}:${c.model}`;
@@ -112,6 +119,7 @@ export async function retrieve(opts: RetrieveOptions): Promise<RetrievedChunk[]>
       embeddingByKey.set(keyOf(cfg), vec);
     }),
   );
+  const embedMs = Date.now() - tEmbed;
 
   const client = qdrantClient();
   // Defense-in-depth: the collection name already isolates tenants, but we also
@@ -133,6 +141,7 @@ export async function retrieve(opts: RetrieveOptions): Promise<RetrievedChunk[]>
   );
 
   // Hybrid search every bucket (each its own collection), collect all hits.
+  const tSearch = Date.now();
   const perBucket = await Promise.all(
     bucketIds.map(async (bucketId) => {
       const cfg = configs.get(bucketId);
@@ -171,10 +180,30 @@ export async function retrieve(opts: RetrieveOptions): Promise<RetrievedChunk[]>
   const fused = [...merged.values()]
     .sort((a, b) => b.score - a.score)
     .slice(0, RERANK_POOL);
-  if (fused.length === 0) return [];
+  const searchMs = Date.now() - tSearch;
+  if (fused.length === 0) {
+    logger.info(
+      { rewriteMs, embedMs, searchMs, rerankMs: 0, totalMs: Date.now() - tStart, candidates: 0 },
+      "[rag.timing] retrieve (no candidates)",
+    );
+    return [];
+  }
 
+  const tRerank = Date.now();
   const rerank = llmReranker(opts.pipelineModel, opts.providerApiKey);
   const reranked = await rerank(query, fused, topK);
+  const rerankMs = Date.now() - tRerank;
+  logger.info(
+    {
+      rewriteMs,
+      embedMs,
+      searchMs,
+      rerankMs,
+      totalMs: Date.now() - tStart,
+      candidates: fused.length,
+    },
+    "[rag.timing] retrieve",
+  );
   // Post-rerank quality gate (D-05): drop chunks below their bucket's
   // effective floor (override ?? env default). An all-below-floor result set
   // returns [] here, which search_knowledge already surfaces as a distinct

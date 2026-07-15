@@ -7,11 +7,22 @@
 #  - mysql: the relational DB for BOTH services. One server, two databases
 #    (`agents` for the API, `chat` for the chat app) created by the init script
 #    below. Each service still owns its own database — no cross-service FKs.
+#
+# Log rotation: cap the default (unbounded) json-file driver at 10MB × 5 files
+# per service so dev logs can't silently fill the disk. Recreate containers
+# (`docker compose up -d`) for a change here to take effect.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   qdrant:
     image: qdrant/qdrant:latest
     container_name: agent-routing-qdrant
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "6333:6333" # REST
       - "6334:6334" # gRPC
@@ -28,6 +39,7 @@ services:
     image: mysql:8.4
     container_name: agent-routing-mysql
     restart: unless-stopped
+    logging: *default-logging
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_USER: app
@@ -54,6 +66,7 @@ services:
       dockerfile: packages/api/Dockerfile
     container_name: agent-routing-api
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       mysql:
         condition: service_healthy
