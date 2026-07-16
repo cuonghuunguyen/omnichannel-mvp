@@ -1,0 +1,9 @@
+# Host-local override (gitignored): pin the sidecar network subnet so the
+# ufw rule allowing DB access (172.18.0.0/16 -> host:3306) stays valid across
+# `docker compose down/up`.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.18.0.0/16
+          gateway: 172.18.0.1
