@@ -294,6 +294,20 @@ export function buildOpenApiDocument() {
           },
         },
       },
+      "/agents/test-mcp-server": {
+        post: {
+          operationId: "testMcpServer",
+          summary: "Connect to an MCP server with the given headers and list its tools",
+          description:
+            "Stateless test-connection endpoint (D-07): connects to the given " +
+            "MCP server (streamable-HTTP only, D-06) with the supplied headers " +
+            "and returns its advertised tool list. Works before the agent is " +
+            "saved — the body is a raw McpServerDef, not an agent id.",
+          tags: ["agents"],
+          requestBody: body("McpServerDef"),
+          responses: { "200": resp("Test result", "McpTestResponse") },
+        },
+      },
       "/agents/{id}": {
         get: {
           operationId: "getAgent",

@@ -1,8 +1,9 @@
 import { Router } from "express";
 import { db } from "@/lib/db";
 import { toAgentDTO, toAgentData } from "@/lib/agent-io";
-import { AgentInput } from "@/schemas";
+import { AgentInput, McpServerDef } from "@/schemas";
 import { tenantFromHeader } from "@/lib/tenant";
+import { connectMcpServers } from "@/lib/agents/mcp";
 
 export const agentsRouter: Router = Router();
 
@@ -70,6 +71,40 @@ agentsRouter.post("/", async (req, res) => {
   });
 
   res.status(201).json({ agent: toAgentDTO(agent) });
+});
+
+/**
+ * Test-connect to a single MCP server with the given headers and list its
+ * advertised tools (D-07). Stateless — accepts a raw McpServerDef body, not an
+ * agent id, so it works before the agent is saved. Registered before the
+ * parameterized `/:id` routes (static-before-parameterized route ordering).
+ */
+agentsRouter.post("/test-mcp-server", async (req, res) => {
+  const parsed = McpServerDef.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ ok: false, error: "invalid body" });
+    return;
+  }
+
+  const conn = await connectMcpServers([parsed.data]);
+  try {
+    const ok = conn.failures.length === 0;
+    if (!ok) {
+      // T-47-02-03: never echo the raw connect-error text (may include host
+      // details from the underlying transport) — a generic reachability
+      // message is sufficient for the operator; the real message is already
+      // logged server-side by connectMcpServers.
+      res.json({ ok: false, error: "Could not reach the MCP server." });
+      return;
+    }
+    const tools = Object.entries(conn.tools).map(([name, tool]) => ({
+      name,
+      description: (tool as { description?: string }).description,
+    }));
+    res.json({ ok: true, tools });
+  } finally {
+    await conn.close();
+  }
 });
 
 /** Fetch a single agent (within the active tenant). */

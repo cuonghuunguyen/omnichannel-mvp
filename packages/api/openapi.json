@@ -512,6 +512,38 @@
         }
       }
     },
+    "/agents/test-mcp-server": {
+      "post": {
+        "operationId": "testMcpServer",
+        "summary": "Connect to an MCP server with the given headers and list its tools",
+        "description": "Stateless test-connection endpoint (D-07): connects to the given MCP server (streamable-HTTP only, D-06) with the supplied headers and returns its advertised tool list. Works before the agent is saved — the body is a raw McpServerDef, not an agent id.",
+        "tags": [
+          "agents"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/McpServerDef"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Test result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/McpTestResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/agents/{id}": {
       "get": {
         "operationId": "getAgent",
@@ -1423,6 +1455,22 @@
           },
           "endpoint": {
             "type": "string"
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "method": {
+            "type": "string",
+            "enum": [
+              "GET",
+              "POST"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -1452,6 +1500,39 @@
         "required": [
           "name",
           "url"
+        ],
+        "additionalProperties": false
+      },
+      "McpTestResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ok"
         ],
         "additionalProperties": false
       },
@@ -1581,6 +1662,22 @@
                 },
                 "endpoint": {
                   "type": "string"
+                },
+                "headers": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "method": {
+                  "type": "string",
+                  "enum": [
+                    "GET",
+                    "POST"
+                  ]
+                },
+                "enabled": {
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -1774,6 +1871,22 @@
                 },
                 "endpoint": {
                   "type": "string"
+                },
+                "headers": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "method": {
+                  "type": "string",
+                  "enum": [
+                    "GET",
+                    "POST"
+                  ]
+                },
+                "enabled": {
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -2104,6 +2217,28 @@
         },
         "additionalProperties": false
       },
+      "UpdateDocumentInput": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "chunkStrategy": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "markdown",
+              "recursive",
+              "paragraph",
+              "sentence"
+            ]
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "additionalProperties": false
+      },
       "SearchInput": {
         "type": "object",
         "properties": {
@@ -2343,6 +2478,22 @@
                     },
                     "endpoint": {
                       "type": "string"
+                    },
+                    "headers": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string"
+                      }
+                    },
+                    "method": {
+                      "type": "string",
+                      "enum": [
+                        "GET",
+                        "POST"
+                      ]
+                    },
+                    "enabled": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -2547,6 +2698,22 @@
                     },
                     "endpoint": {
                       "type": "string"
+                    },
+                    "headers": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": "string"
+                      }
+                    },
+                    "method": {
+                      "type": "string",
+                      "enum": [
+                        "GET",
+                        "POST"
+                      ]
+                    },
+                    "enabled": {
+                      "type": "boolean"
                     }
                   },
                   "required": [
@@ -2751,6 +2918,22 @@
                       },
                       "endpoint": {
                         "type": "string"
+                      },
+                      "headers": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "type": "string"
+                        }
+                      },
+                      "method": {
+                        "type": "string",
+                        "enum": [
+                          "GET",
+                          "POST"
+                        ]
+                      },
+                      "enabled": {
+                        "type": "boolean"
                       }
                     },
                     "required": [

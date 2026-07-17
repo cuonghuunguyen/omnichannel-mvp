@@ -17,14 +17,29 @@ export const CustomToolDef = z.object({
   description: z.string(),
   /** JSON Schema (object) describing the tool input. */
   schema: z.record(z.string(), z.unknown()),
-  /** HTTP endpoint invoked with the tool input as JSON body. */
+  /** HTTP endpoint invoked with the tool input as JSON body (or query string for GET). */
   endpoint: z.string(),
+  /** Extra headers forwarded on every outbound request (e.g. Authorization). */
+  headers: z.record(z.string(), z.string()).optional(),
+  /** HTTP method used to invoke the endpoint. Absent defaults to POST. */
+  method: z.enum(["GET", "POST"]).optional(),
+  /** Whether this tool is included in the assembled tool set. Absent defaults to enabled (true). */
+  enabled: z.boolean().optional(),
 });
 
 export const McpServerDef = z.object({
   name: z.string(),
   url: z.string(),
   headers: z.record(z.string(), z.string()).optional(),
+});
+
+/** Response for POST /agents/test-mcp-server (D-07). */
+export const McpTestResponse = z.object({
+  ok: z.boolean(),
+  tools: z
+    .array(z.object({ name: z.string(), description: z.string().optional() }))
+    .optional(),
+  error: z.string().optional(),
 });
 
 export const HandoffRule = z.object({
@@ -272,6 +287,7 @@ export const components = {
   BuiltinToolFlags,
   CustomToolDef,
   McpServerDef,
+  McpTestResponse,
   HandoffRule,
   GuardrailsConfig,
   KnowledgeConfig,
