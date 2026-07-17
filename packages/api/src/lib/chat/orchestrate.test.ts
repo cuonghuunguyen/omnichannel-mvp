@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isToolCallFailed } from "@/lib/chat/orchestrate";
+import { isToolCallFailed, synthesizeMcpFailureEntries } from "@/lib/chat/orchestrate";
 
 // D-09 (Task 1): unit coverage for the three genuinely-different AI SDK v6
 // tool failure shapes (Pitfall 4). All cases exercise plain mock step
@@ -82,5 +82,43 @@ describe("isToolCallFailed", () => {
   it("does not flag a call with no toolResult and no matching tool-error content-part", () => {
     const failed = isToolCallFailed(toolCall(), emptyStep(), undefined);
     expect(failed).toBe(false);
+  });
+});
+
+// D-09 (Task 2) / Pitfall 3: an MCP server that never connected must still
+// surface as a failed:true toolCalls entry, synthesized from
+// connectMcpServers()' failures[] (47-02) even when no real tool call
+// happened this turn.
+describe("synthesizeMcpFailureEntries", () => {
+  it("produces a synthesized failed:true entry per failed server, prefixed mcp:", () => {
+    const entries = synthesizeMcpFailureEntries([
+      { server: "orders-mcp", error: "ECONNREFUSED" },
+    ]);
+    expect(entries).toEqual([
+      { name: "mcp:orders-mcp", summary: "Could not connect to MCP server", failed: true },
+    ]);
+  });
+
+  it("never leaks the raw connect-error text into the synthesized summary (T-47-03-01)", () => {
+    const entries = synthesizeMcpFailureEntries([
+      { server: "orders-mcp", error: "secret internal stack trace with header values" },
+    ]);
+    expect(entries[0].summary).toBe("Could not connect to MCP server");
+    expect(JSON.stringify(entries)).not.toContain("secret internal stack trace");
+  });
+
+  it("produces one entry per failed server", () => {
+    const entries = synthesizeMcpFailureEntries([
+      { server: "orders-mcp", error: "ECONNREFUSED" },
+      { server: "billing-mcp", error: "timed out" },
+    ]);
+    expect(entries).toEqual([
+      { name: "mcp:orders-mcp", summary: "Could not connect to MCP server", failed: true },
+      { name: "mcp:billing-mcp", summary: "Could not connect to MCP server", failed: true },
+    ]);
+  });
+
+  it("produces no synthesized entries when there are zero failures", () => {
+    expect(synthesizeMcpFailureEntries([])).toEqual([]);
   });
 });
