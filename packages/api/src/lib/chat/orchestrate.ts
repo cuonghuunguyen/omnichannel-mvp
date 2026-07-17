@@ -125,6 +125,26 @@ export function isToolCallFailed(
 }
 
 /**
+ * D-09 / Pitfall 3: `connectMcpServers()` swallows per-server connect
+ * failures into a server-side log line and otherwise continues the turn
+ * silently. Synthesize a `failed:true` entry per never-connected server so
+ * an operator sees it in the same `aiDetail.toolCalls[]` list — even when no
+ * actual tool call happened this turn. Reuses the existing contract rather
+ * than inventing a parallel "connection failures" field. The fixed summary
+ * string never interpolates the raw connect-error text (T-47-03-01) — that
+ * detail stays in connectMcpServers()'s own logger.error() call.
+ */
+export function synthesizeMcpFailureEntries(
+  failures: { server: string; error: string }[],
+): { name: string; summary: string; failed: true }[] {
+  return failures.map((failure) => ({
+    name: `mcp:${failure.server}`,
+    summary: "Could not connect to MCP server",
+    failed: true,
+  }));
+}
+
+/**
  * Run the orchestration loop and return a UIMessage stream. Persistence and
  * conversation-state changes are pushed back to the chat service via callbacks.
  * The caller (the /chat route) is responsible for the open/human/closed gates
@@ -250,7 +270,7 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
         // loaded for the guard above; reuse it instead of querying again.
         const routable =
           hop === 0 ? entryRoutable : await loadRoutableAgents(current.id, tenantId);
-        const { system, tools, closeMcp } = await buildAgentRuntime(
+        const { system, tools, closeMcp, mcpFailures } = await buildAgentRuntime(
           current,
           routable,
           tenantId,
@@ -339,9 +359,13 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
               };
             }),
           );
+          // D-09/Pitfall 3: append a synthesized failed entry for every MCP
+          // server this hop's runtime failed to connect to, even when no
+          // real tool call happened — reuses the same toolCalls[] contract.
+          const allToolCalls = [...toolCalls, ...synthesizeMcpFailureEntries(mcpFailures)];
           aiDetail =
-            toolCalls.length > 0 || reasoningText
-              ? { toolCalls, ...(reasoningText ? { reasoning: reasoningText } : {}) }
+            allToolCalls.length > 0 || reasoningText
+              ? { toolCalls: allToolCalls, ...(reasoningText ? { reasoning: reasoningText } : {}) }
               : undefined;
           hopTimings.push({
             hop,

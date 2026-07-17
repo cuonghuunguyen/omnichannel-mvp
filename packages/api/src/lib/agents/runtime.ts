@@ -52,7 +52,10 @@ export function buildSystemPrompt(
 /**
  * Build the system prompt + full toolset for one hop: built-in routing tools,
  * the agent's custom HTTP tools, and any remote MCP server tools. Returns a
- * `closeMcp` the caller must run in a `finally` once the hop's stream finishes.
+ * `closeMcp` the caller must run in a `finally` once the hop's stream finishes,
+ * plus `mcpFailures` — the per-server connect failures `connectMcpServers()`
+ * recorded (D-09), forwarded so `orchestrate.ts` can surface them in
+ * `aiDetail.toolCalls[]` instead of them only reaching the server-side log.
  *
  * Built-in tools are merged last so a misconfigured custom/MCP tool can never
  * shadow `deliver_to_agent`/`deliver_to_human` and break routing.
@@ -96,5 +99,6 @@ export async function buildAgentRuntime(
       ...buildBuiltinTools(builtinTools, routable, ctx),
     },
     closeMcp: mcp.close,
+    mcpFailures: mcp.failures,
   };
 }
