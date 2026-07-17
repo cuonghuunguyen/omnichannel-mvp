@@ -65,7 +65,7 @@ const mockedBuildCustomTools = vi.mocked(buildCustomTools);
 
 beforeEach(() => {
   mockedConnect.mockReset();
-  mockedConnect.mockResolvedValue({ tools: {}, close: vi.fn() });
+  mockedConnect.mockResolvedValue({ tools: {}, close: vi.fn(), failures: [] });
   mockedBuildCustomTools.mockClear();
 });
 
