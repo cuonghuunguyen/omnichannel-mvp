@@ -92,6 +92,39 @@ function summarizeToolCall(
 }
 
 /**
+ * D-09: classify whether a single tool call failed, checking the three
+ * genuinely-different AI SDK v6 failure shapes IN ORDER (Pitfall 4):
+ *   1. `step.content` carries a `type: 'tool-error'` entry for this
+ *      `toolCallId` — the SDK's own dispatch machinery threw (e.g. input
+ *      schema validation) before/instead of `execute()` running. This entry
+ *      never appears in `step.toolResults`, so it must be checked first or
+ *      it is silently missed.
+ *   2. `output.error` is a string — the custom-tool `buildCustomTools()`
+ *      catch-and-return convention (network/timeout failure).
+ *   3. `output.status` is a number >= 400 — a custom tool's endpoint
+ *      responded with a non-2xx HTTP status (`{status, body}` shape).
+ *   4. `output.isError === true` — an MCP `CallToolResult` reporting a
+ *      protocol-level tool error (still a `tool-result`, never thrown).
+ * A clean successful call falls through every check and returns false.
+ */
+export function isToolCallFailed(
+  call: { toolCallId: string },
+  step: { content: readonly { type: string; toolCallId?: string }[] },
+  toolResult: { output: unknown } | undefined,
+): boolean {
+  const dispatchThrew = step.content.some(
+    (part) => part.type === "tool-error" && part.toolCallId === call.toolCallId,
+  );
+  if (dispatchThrew) return true;
+
+  const output = (toolResult?.output ?? {}) as Record<string, unknown>;
+  if (typeof output.error === "string") return true;
+  if (typeof output.status === "number" && output.status >= 400) return true;
+  if (output.isError === true) return true;
+  return false;
+}
+
+/**
  * Run the orchestration loop and return a UIMessage stream. Persistence and
  * conversation-state changes are pushed back to the chat service via callbacks.
  * The caller (the /chat route) is responsible for the open/human/closed gates
@@ -240,7 +273,9 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
         const tGen = Date.now();
 
         let text: string;
-        let aiDetail: { toolCalls: { name: string; summary: string }[]; reasoning?: string } | undefined;
+        let aiDetail:
+          | { toolCalls: { name: string; summary: string; failed?: boolean }[]; reasoning?: string }
+          | undefined;
         try {
           const agentForMeta = current;
           const result = streamText({
@@ -296,7 +331,12 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
               const toolResult = step.toolResults.find(
                 (r) => r.toolCallId === call.toolCallId,
               );
-              return { name: call.toolName, summary: summarizeToolCall(call, toolResult) };
+              const failed = isToolCallFailed(call, step, toolResult);
+              return {
+                name: call.toolName,
+                summary: summarizeToolCall(call, toolResult),
+                ...(failed ? { failed: true } : {}),
+              };
             }),
           );
           aiDetail =
