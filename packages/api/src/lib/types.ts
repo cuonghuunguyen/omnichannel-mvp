@@ -13,8 +13,14 @@ export type CustomToolDef = {
   description: string;
   /** JSON Schema (object) describing the tool input. */
   schema: Record<string, unknown>;
-  /** HTTP endpoint invoked with the tool input as JSON body. */
+  /** HTTP endpoint invoked with the tool input as JSON body (or query string for GET). */
   endpoint: string;
+  /** Extra headers forwarded on every outbound request (e.g. Authorization). */
+  headers?: Record<string, string>;
+  /** HTTP method used to invoke the endpoint. Absent defaults to POST. */
+  method?: "GET" | "POST";
+  /** Whether this tool is included in the assembled tool set. Absent defaults to enabled (true). */
+  enabled?: boolean;
 };
 
 export type McpServerDef = {

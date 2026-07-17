@@ -263,8 +263,11 @@ export const HANDOFF_TOOL_NAMES = [
 
 /**
  * Turn an agent's configured custom tools into AI SDK tools. Each tool's JSON
- * Schema is handed to the model verbatim; on call, the input is POSTed to the
- * configured endpoint and the JSON (or raw text) response is returned to the LLM.
+ * Schema is handed to the model verbatim; on call, the input is sent to the
+ * configured endpoint (JSON body for POST/absent method, query-string params
+ * for GET), configured headers are forwarded, and the JSON (or raw text)
+ * response is returned to the LLM. Note: `enabled` filtering does NOT happen
+ * here — the caller (runtime.ts) filters disabled tools before invoking this.
  */
 export function buildCustomTools(defs: CustomToolDef[]): ToolSet {
   const tools: ToolSet = {};
@@ -278,10 +281,31 @@ export function buildCustomTools(defs: CustomToolDef[]): ToolSet {
       ),
       execute: async (input) => {
         try {
-          const res = await fetch(def.endpoint, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(input),
+          // Absent method defaults to POST (Pitfall 1/2) — matches the prior
+          // hardcoded behavior for every pre-existing configured tool.
+          const method = def.method === "GET" ? "GET" : "POST";
+          const headers: Record<string, string> = {
+            ...(def.headers ?? {}),
+            ...(method === "POST" ? { "Content-Type": "application/json" } : {}),
+          };
+          let url = def.endpoint;
+          let body: string | undefined;
+          if (method === "GET") {
+            // GET maps the tool input to query-string params instead of a JSON
+            // body. Use URLSearchParams (Don't-Hand-Roll) for correct encoding.
+            const qs = new URLSearchParams();
+            for (const [k, v] of Object.entries((input ?? {}) as Record<string, unknown>)) {
+              qs.set(k, typeof v === "string" ? v : JSON.stringify(v));
+            }
+            const qsStr = qs.toString();
+            if (qsStr) url += (url.includes("?") ? "&" : "?") + qsStr;
+          } else {
+            body = JSON.stringify(input);
+          }
+          const res = await fetch(url, {
+            method,
+            headers,
+            ...(body !== undefined ? { body } : {}),
             // Bound the call so a hung endpoint can't stall the agent's turn.
             signal: AbortSignal.timeout(TIMEOUTS.toolFetchMs),
           });
