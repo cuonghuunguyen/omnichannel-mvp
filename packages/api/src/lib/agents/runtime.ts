@@ -68,6 +68,10 @@ export async function buildAgentRuntime(
   providerApiKey?: string,
 ) {
   const { builtinTools, customTools, mcpServers, guardrails, knowledge } = agent;
+  // D-10: exclude tools individually paused via `enabled: false`. Absent or
+  // `true` both count as enabled (Pitfall 1) — every pre-phase agent has no
+  // `enabled` key at all and must keep working unchanged.
+  const enabledCustomTools = customTools.filter((t) => t.enabled !== false);
   const mcp = await connectMcpServers(mcpServers);
   // ctx (including its optional recordKnowledge callback) is forwarded as-is into
   // buildKnowledgeTool below, so a caller's recordKnowledge reaches the knowledge tool.
@@ -78,7 +82,7 @@ export async function buildAgentRuntime(
     system: buildSystemPrompt(agent, guardrails, routable.length > 0),
     tools: {
       ...mcp.tools,
-      ...buildCustomTools(customTools),
+      ...buildCustomTools(enabledCustomTools),
       ...buildKnowledgeTool(
         knowledge,
         pipelineModel,
