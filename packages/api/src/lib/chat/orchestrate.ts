@@ -26,6 +26,19 @@ import { dispatchEvent, type WebhookTarget } from "@/lib/webhooks/dispatch";
 import type { ChatUIMessage } from "@/lib/agents/ui-messages";
 import { logger } from "@/lib/logger";
 
+/**
+ * Last-resort reply dispatched when a turn finishes without producing any
+ * assistant text and without escalating/closing the conversation — e.g. the
+ * model exhausted its step budget or hit the llmMs turn timeout mid tool-loop
+ * (a runaway search_knowledge loop). Without this, such a turn dispatched NO
+ * assistant_message webhook, so the customer received nothing and the failure
+ * looked like a normal "[turn.timing] completed" (bug: rag-reply-never-completes).
+ * Mirrors guard.ts's static DEFAULT_REFUSAL fail-safe pattern.
+ */
+export const TURN_FALLBACK =
+  "Sorry, I'm having trouble putting together a reply right now. " +
+  "Please try again in a moment, or ask to be connected to a human agent.";
+
 export type OrchestrateInput = {
   /** Tenant the conversation belongs to — scopes every agent + knowledge read. */
   tenantId: string;
@@ -162,6 +175,11 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
       // Turn-level timing: guard + each hop are all sequential and on the
       // critical path, so their sum is the latency the user actually waits for.
       const tTurnStart = Date.now();
+      // Guaranteed-delivery tracking: a turn that finishes without dispatching an
+      // assistant_message AND without escalating/closing would silently deliver
+      // nothing. Track both so the fallback below fires only when truly needed.
+      let assistantDispatched = false;
+      let escalatedOrClosed = false;
       const hopTimings: {
         hop: number;
         agent: string;
@@ -417,6 +435,7 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
             ...(usedKnowledge ? { usedKnowledge } : {}),
             ...(aiDetail ? { aiDetail } : {}),
           });
+          assistantDispatched = true;
         }
 
         // Cast resets TS's control-flow narrowing: `handoff` is only ever
@@ -426,6 +445,7 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
 
         if (signal.kind === "end") {
           // The agent has resolved the request and closed the conversation.
+          escalatedOrClosed = true;
           await cb.closeConversation({ reason: signal.reason });
           writer.write({
             type: "data-routing",
@@ -441,6 +461,7 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
             flag: routingFlag,
             text: lastUserText,
           });
+          escalatedOrClosed = true;
           await cb.escalateToHuman({ humanAgentId, reason: signal.reason });
           writer.write({
             type: "data-routing",
@@ -467,6 +488,35 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
         current = next;
       }
 
+      // GUARANTEED DELIVERY (bug: rag-reply-never-completes): if the turn produced
+      // no assistant text and did not escalate/close, it would dispatch NO
+      // assistant_message webhook — so the customer's channel (e.g. WhatsApp)
+      // receives nothing and the failure hides behind a normal "completed" log.
+      // This happens when the model exhausts MAX_STEPS_PER_AGENT or hits the llmMs
+      // turn timeout mid tool-loop (a runaway search_knowledge loop). Dispatch a
+      // fallback reply (also streamed into the open assistant message) and log a
+      // warning so the turn is always both delivered and visible to operators.
+      if (!assistantDispatched && !escalatedOrClosed) {
+        logger.warn(
+          {
+            conversationId,
+            totalMs: Date.now() - tTurnStart,
+            hops: hopTimings,
+          },
+          "[turn.fallback] turn produced no assistant text (empty generation or step/timeout exhaustion) — dispatching fallback reply",
+        );
+        const fbId = `fallback-${crypto.randomUUID()}`;
+        writer.write({ type: "text-start", id: fbId });
+        writer.write({ type: "text-delta", id: fbId, delta: TURN_FALLBACK });
+        writer.write({ type: "text-end", id: fbId });
+        await cb.appendAssistantMessage({
+          text: TURN_FALLBACK,
+          authorAgentId: entryAgent.id,
+          authorAgentName: entryAgent.name,
+        });
+        assistantDispatched = true;
+      }
+
       // Close the single assistant message we streamed across all hops.
       writer.write({ type: "finish" });
 
@@ -485,9 +535,19 @@ export function orchestrate(input: OrchestrateInput): ReadableStream<UIMessageCh
         "[turn.timing] completed",
       );
     },
-    onError: (error) =>
-      process.env.NODE_ENV === "production"
+    onError: (error) => {
+      // OBS: log the error. Without this, a turn that throws after the LLM was
+      // invoked (e.g. a provider error on the post-retrieval generation step)
+      // was silently converted to "An error occurred." with NO log and NO
+      // assistant_message webhook — the customer's reply just vanished and the
+      // failure was invisible to operators (rag-reply-never-completes).
+      logger.error(
+        { err: error, conversationId },
+        "[turn.error] orchestration turn threw before completion",
+      );
+      return process.env.NODE_ENV === "production"
         ? "An error occurred."
-        : `Agent error: ${error instanceof Error ? error.message : String(error)}`,
+        : `Agent error: ${error instanceof Error ? error.message : String(error)}`;
+    },
   });
 }
